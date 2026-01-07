@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+/**
+ * Generate review_now.ts
+ *
+ * Purpose:
+ * Create a MANUAL REVIEW SURFACE for senior engineers.
+ * This script copies source files verbatim without modification.
+ *
+ * ❌ No formatting
+ * ❌ No rewriting
+ * ❌ No summarizing
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ────────────────────────────────────────────────────────────
+// CONFIG
+// ────────────────────────────────────────────────────────────
+
+const ROOT_DIR = path.resolve(__dirname, '..');
+const OUTPUT_FILE = path.join(ROOT_DIR, 'review_now.ts');
+
+const INCLUDE_PATHS = ['rng-firebase', 'rng-forms', 'lib', 'feaures', 'app'];
+
+const EXCLUDE_DIRS = new Set(['dist', 'build', 'node_modules']);
+
+const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.md']);
+
+// ────────────────────────────────────────────────────────────
+// HELPERS
+// ────────────────────────────────────────────────────────────
+
+const isExcluded = (filePath) => EXCLUDE_DIRS.has(path.basename(filePath));
+
+const shouldIncludeFile = (filePath) => VALID_EXTENSIONS.has(path.extname(filePath));
+
+const walkDir = (dir, collected = []) => {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      if (!isExcluded(entry.name)) {
+        walkDir(fullPath, collected);
+      }
+    } else if (entry.isFile() && shouldIncludeFile(fullPath)) {
+      collected.push(fullPath);
+    }
+  }
+
+  return collected;
+};
+
+const writeHeader = (stream) => {
+  stream.write(`/**
+ * rng-firebase manual review file
+ * Purpose: line-by-line senior engineer review
+ */
+
+`);
+};
+
+const writeFileBlock = (stream, filePath) => {
+  const relativePath = path.relative(ROOT_DIR, filePath).replace(/\\/g, '/');
+  const content = fs.readFileSync(filePath, 'utf8');
+
+  stream.write(`// ============================================================
+// FILE: ${relativePath}
+// ============================================================
+
+// [BEGIN ORIGINAL CODE]
+
+${content}
+
+// [END ORIGINAL CODE]
+
+`);
+};
+
+const writeFooter = (stream) => {
+  stream.write(`/**
+ * End of review file
+ * Frozen contracts intentionally excluded
+ */
+`);
+};
+
+// ────────────────────────────────────────────────────────────
+// MAIN
+// ────────────────────────────────────────────────────────────
+
+const main = () => {
+  const out = fs.createWriteStream(OUTPUT_FILE, { encoding: 'utf8' });
+
+  writeHeader(out);
+
+  for (const includePath of INCLUDE_PATHS) {
+    const resolvedPath = path.join(ROOT_DIR, includePath);
+
+    if (!fs.existsSync(resolvedPath)) continue;
+
+    if (fs.statSync(resolvedPath).isFile()) {
+      writeFileBlock(out, resolvedPath);
+    } else {
+      const files = walkDir(resolvedPath).sort();
+      for (const file of files) {
+        writeFileBlock(out, file);
+      }
+    }
+  }
+
+  writeFooter(out);
+  out.end();
+
+  console.log(`✅ review_now.ts generated successfully`);
+};
+
+main();

@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    },
+
+    // 🛡️ EXTRA SAFETY RULES (Production Hardening)
+    "noUncheckedIndexedAccess": true, // Arrays can return undefined!
+    "noImplicitReturns": true, // Functions must return or throw
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+    "exactOptionalPropertyTypes": false // Keeps it compatible with Firebase
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.d.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts",
+    "core/auth/auth.context.tsx"
+  ],
+  "exclude": ["node_modules"]
+}
