@@ -1,0 +1,49 @@
+// Typed errors for Auth domain (Phase 1)
+
+export class AuthDisabledError extends Error {
+  readonly code = 'AUTH_DISABLED';
+  constructor(message = 'User is disabled') {
+    super(message);
+    Object.setPrototypeOf(this, AuthDisabledError.prototype);
+  }
+}
+
+export class EmailNotVerifiedError extends Error {
+  readonly code = 'EMAIL_NOT_VERIFIED';
+  constructor(message = 'Email not verified') {
+    super(message);
+    Object.setPrototypeOf(this, EmailNotVerifiedError.prototype);
+  }
+}
+
+export class SignupNotAllowedError extends Error {
+  readonly code = 'SIGNUP_NOT_ALLOWED';
+  constructor(message = 'Signup is not allowed') {
+    super(message);
+    Object.setPrototypeOf(this, SignupNotAllowedError.prototype);
+  }
+}
+
+export class OwnerAlreadyExistsError extends Error {
+  readonly code = 'OWNER_ALREADY_EXISTS';
+  constructor(message = 'Owner already exists') {
+    super(message);
+    Object.setPrototypeOf(this, OwnerAlreadyExistsError.prototype);
+  }
+}
+
+export class InvalidCredentialsError extends Error {
+  readonly code = 'INVALID_CREDENTIALS';
+  constructor(message = 'Invalid credentials') {
+    super(message);
+    Object.setPrototypeOf(this, InvalidCredentialsError.prototype);
+  }
+}
+
+export class OwnerBootstrapError extends Error {
+  readonly code = 'OWNER_BOOTSTRAP_ERROR';
+  constructor(message = 'Owner bootstrap violation') {
+    super(message);
+    Object.setPrototypeOf(this, OwnerBootstrapError.prototype);
+  }
+}

@@ -1,0 +1,20 @@
+// Kernel Public vs Private Surface
+// ================================
+//
+// Public Kernel Surface:
+// - Feature DSL (future)
+// - Feature hooks (future)
+// - Auth hooks (future)
+// - Auth guards (future)
+//
+// Private / Internal:
+// - FirebaseAuthAdapter (adapters/firebase-auth.adapter.ts)
+// - Auth state machine (domain/auth/auth.state-machine.ts)
+// - AuthService orchestrator (domain/auth/auth.service.ts)
+// - UserRepository (repositories/user.repository.ts)
+// - ExecutionContext creation
+// - RBAC engine
+// - Firebase wiring
+// - Audit plumbing
+//
+// Only the public surface is accessible to application code. All private/internal logic is strictly encapsulated within the kernel.
