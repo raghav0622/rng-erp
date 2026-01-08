@@ -25,9 +25,15 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_FILE = path.join(ROOT_DIR, 'review_now.ts');
 
-const INCLUDE_PATHS = ['rng-firebase', 'rng-forms', 'lib', 'feaures', 'app'];
+const INCLUDE_PATHS = ['rng-firebase'];
 
-const EXCLUDE_DIRS = new Set(['dist', 'build', 'node_modules']);
+const EXCLUDE_DIRS = new Set([
+  'dist',
+  'build',
+  'node_modules',
+  'rng-firebase/abstract-client-repository',
+  'abstract-client-repository',
+]);
 
 const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.md']);
 

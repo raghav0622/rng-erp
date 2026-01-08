@@ -1,14 +1,12 @@
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 
-import { AuthServiceProvider } from '@/rng-firebase';
 import { ColorSchemeScript, mantineHtmlProps, MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import type { Metadata } from 'next';
 import React from 'react';
 import { theme } from '../theme';
-import { SingleInstanceGuard } from '../ui/auth/SingleInstanceSafeGuard';
-import { ReactQueryProvider } from './provider-react-query';
+import { SingleInstanceGuard } from './SingleInstanceSafeGuard';
 
 export const metadata: Metadata = {
   title: 'RNG Apps',
@@ -25,14 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <AuthServiceProvider>
-          <ReactQueryProvider>
-            <MantineProvider theme={theme}>
-              <Notifications position="top-right" zIndex={1000} />
-              <SingleInstanceGuard>{children}</SingleInstanceGuard>
-            </MantineProvider>
-          </ReactQueryProvider>
-        </AuthServiceProvider>
+        <MantineProvider theme={theme}>
+          <Notifications position="top-right" zIndex={1000} />
+          <SingleInstanceGuard>{children}</SingleInstanceGuard>
+        </MantineProvider>
       </body>
     </html>
   );
