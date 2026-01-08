@@ -7,5 +7,5 @@ export {
   useFeatureMutation,
   useFeatureQuery,
   useFeatureSubscription,
-} from './abstract-service-hooks/src';
+} from './feature-execution-engine/src';
 export { RNGFirebaseAppShell } from './RNGFirebaseAppShell';

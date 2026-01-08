@@ -1,12 +1,9 @@
-// User type is not available in this abstraction layer; use a minimal placeholder.
-export interface User {
-  id: string;
-  email?: string;
-}
+import { useContext } from 'react';
+import { ExecutionContext } from '../../auth-rbac-user-management-layer/shared/execution-context';
+import { ExecutionContextReact } from './useFeatureSubscription';
 
-export interface ExecutionContext {
-  user: User | null;
-  role: string | null;
-  teamId?: string;
-  isAssigned?: boolean;
+export function useResolvedExecutionContext(): ExecutionContext {
+  const ctx = useContext(ExecutionContextReact);
+  if (!ctx) throw new Error('ExecutionContext not found in React context');
+  return ctx;
 }

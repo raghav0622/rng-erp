@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { ReactNode } from 'react';
 // RBACProvider and RBACContextValue removed (RBAC v2: use role from AuthState)
-import { ServiceErrorBoundary, ServiceSuspense } from './abstract-service-hooks/src';
+import { ServiceErrorBoundary, ServiceSuspense } from './feature-execution-engine/src';
 
 interface RNGFirebaseAppShellProps {
   suspenseFallback: ReactNode;

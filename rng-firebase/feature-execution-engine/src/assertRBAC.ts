@@ -1,5 +1,6 @@
-import type { ExecutionContext } from './execution-context';
-// evaluateRBAC and ForbiddenError must be provided by the application layer.
+import { ForbiddenError } from '../../abstract-client-repository/errors';
+import type { ExecutionContext } from '../../auth-rbac-user-management-layer/shared/execution-context';
+import { evaluateRBAC } from '../../auth-rbac-user-management-layer/shared/rbac-engine';
 
 export function assertRBAC(
   def: {
@@ -10,5 +11,12 @@ export function assertRBAC(
   },
   ctx: ExecutionContext,
 ): void {
-  throw new Error('assertRBAC must be implemented by the application.');
+  if (!def.permissions) return;
+  const result = evaluateRBAC({
+    role: ctx.role,
+    resource: def.feature,
+    action: def.action,
+    context: def.context ?? undefined,
+  });
+  if (!result.allowed) throw new ForbiddenError();
 }

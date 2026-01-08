@@ -1,12 +1,24 @@
-// useReadProfile: returns user profile
+import { defineQueryFeature } from '../../../feature-execution-engine/src/feature-query-dsl';
+import { useFeatureQuery } from '../../../feature-execution-engine/src/useFeatureQuery';
+import { userRepository } from '../../UserRepository';
+import { writeAuditEvent } from '../../shared/audit-log';
 
-import { useResolvedExecutionContext } from '../../../feature-execution-engine/src/execution-context';
-// import { userRepo } from '...'; // Replace with actual user repository import
+const readProfileFeature = defineQueryFeature({
+  name: 'ReadProfile',
+  feature: 'user',
+  action: 'read',
+  permissions: true,
+  query: async (ctx) => {
+    const user = await userRepository.getById(ctx.user.id);
+    writeAuditEvent({
+      type: 'profile_read',
+      userId: ctx.user.id,
+      timestamp: ctx.now,
+    });
+    return user;
+  },
+});
 
-// Fetches the current user's profile from the repository
 export function useReadProfile() {
-  const ctx = useResolvedExecutionContext();
-  // Replace with actual repository call
-  // return useQuery(['userProfile', ctx.user.uid], () => userRepo.getById(ctx.user.uid));
-  return { user: ctx.user };
+  return useFeatureQuery(readProfileFeature);
 }

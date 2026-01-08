@@ -1,35 +1,28 @@
 import { Component, ReactNode } from 'react';
 
-type FallbackType = ReactNode | ((error: Error) => ReactNode);
-
 interface Props {
   children: ReactNode;
-  fallback: FallbackType;
+  fallback?: ReactNode;
 }
 
 interface State {
-  error: Error | null;
+  hasError: boolean;
 }
 
-export class ServiceErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+export default class ServiceErrorBoundary extends Component<Props, State> {
+  state: State = { hasError: false };
 
-  static getDerivedStateFromError(error: Error) {
-    return { error };
+  static getDerivedStateFromError() {
+    return { hasError: true };
   }
 
-  componentDidCatch(error: Error, info: any) {
-    // Do not swallow errors; preserve error identity for boundaries
-    // Optionally, could rethrow or report here if required by contract
+  componentDidCatch(error: unknown) {
+    // Optionally log error
   }
 
   render() {
-    if (this.state.error) {
-      const { fallback } = this.props;
-      if (typeof fallback === 'function') {
-        return (fallback as (error: Error) => ReactNode)(this.state.error);
-      }
-      return fallback;
+    if (this.state.hasError) {
+      return this.props.fallback ?? null;
     }
     return this.props.children;
   }

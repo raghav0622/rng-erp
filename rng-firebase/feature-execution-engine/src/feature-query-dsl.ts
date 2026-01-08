@@ -1,9 +1,13 @@
-export interface FeatureQueryDefinition {
+export interface QueryFeatureDefinition<TResult = unknown> {
+  name: string;
   feature: string;
-  query: string;
+  action: string;
   permissions?: true;
+  query: (
+    ctx: import('../../auth-rbac-user-management-layer/shared/execution-context').ExecutionContext,
+  ) => Promise<TResult>;
 }
 
-export function defineFeatureQuery(def: FeatureQueryDefinition) {
+export function defineQueryFeature<TResult>(def: QueryFeatureDefinition<TResult>) {
   return def;
 }
