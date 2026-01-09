@@ -12,8 +12,11 @@
 // - Auth state machine (domain/auth/auth.state-machine.ts)
 // - AuthService orchestrator (domain/auth/auth.service.ts)
 // - UserRepository (repositories/user.repository.ts)
+// - RBAC engine (domain/rbac/rbac.engine.ts)
+// - RBACService orchestrator (domain/rbac/rbac.service.ts)
+// - RoleRepository (repositories/role.repository.ts)
+// - AssignmentRepository (repositories/assignment.repository.ts)
 // - ExecutionContext creation
-// - RBAC engine
 // - Firebase wiring
 // - Audit plumbing
 //

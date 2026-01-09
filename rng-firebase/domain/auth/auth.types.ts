@@ -1,5 +1,5 @@
 // Auth domain types and state definitions for Phase 1
-import type { User } from './contract';
+import type { User } from '../user/contract';
 
 export type AuthStatus =
   | 'unauthenticated'

@@ -10,6 +10,14 @@ import type { ExecutionContext } from '../../domain/auth/execution-context';
  * - Features NEVER check RBAC
  * - Context is trusted
  * - Repositories are allowed ONLY here
+ *
+ * Feature Identity Rules:
+ * - Each feature+action pair MUST be globally unique
+ * - Feature/action names are case-sensitive
+ * - No feature may perform side effects outside its declared action
+ * - Features may not mutate ExecutionContext
+ * - Features may not access RBAC or auth state directly
+ * - Features may not call other features directly
  */
 export interface CommandFeature<TInput, TResult> {
   name: string;
@@ -28,6 +36,14 @@ export interface CommandFeature<TInput, TResult> {
  * - Features NEVER check RBAC
  * - Context is trusted
  * - Repositories are allowed ONLY here
+ *
+ * Feature Identity Rules:
+ * - Each feature+action pair MUST be globally unique
+ * - Feature/action names are case-sensitive
+ * - No feature may perform side effects outside its declared action
+ * - Features may not mutate ExecutionContext
+ * - Features may not access RBAC or auth state directly
+ * - Features may not call other features directly
  */
 export interface QueryFeature<TResult> {
   name: string;
