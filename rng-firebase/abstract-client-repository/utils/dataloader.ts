@@ -69,7 +69,12 @@ export class SimpleDataLoader<K, V> {
       const results = await this.batchLoadFn(keys);
 
       if (results.length !== keys.length) {
-        throw new Error('Batch loader must return same number of results as keys');
+        // Kernel-level invariant violation
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { KernelInvariantViolationError } = require('../../kernel-errors');
+        throw new KernelInvariantViolationError(
+          'Batch loader must return same number of results as keys',
+        );
       }
 
       batch.forEach((item, index) => {

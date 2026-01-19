@@ -1,4 +1,6 @@
 // Pure reducer-style auth state machine (Phase 1)
+import { InvalidUserLifecycleTransitionError } from '../user/user.lifecycle';
+import { SessionInvalidatedError } from './auth.errors';
 import type { AuthContextState, AuthEvent } from './auth.types';
 
 /**
@@ -15,8 +17,8 @@ export function authStateReducer(state: AuthContextState, event: AuthEvent): Aut
         case 'SIGN_OUT':
           return { ...state, status: 'unauthenticated', user: null };
         case 'SIGN_IN_SUCCESS':
-          if (!state.user) throw new Error('No user on sign-in success');
-          if (!state.user.isActive) return { ...state, status: 'disabled' };
+          if (!state.user) throw new SessionInvalidatedError('No user on sign-in success');
+          if (state.user.lifecycle === 'disabled') return { ...state, status: 'disabled' };
           return state.user.isEmailVerified
             ? { ...state, status: 'authenticated' }
             : { ...state, status: 'email_unverified' };
@@ -25,31 +27,31 @@ export function authStateReducer(state: AuthContextState, event: AuthEvent): Aut
         case 'USER_DISABLED':
           return { ...state, status: 'disabled' };
         default:
-          throw new Error(`Invalid transition: ${status} + ${event}`);
+          throw new InvalidUserLifecycleTransitionError(`Invalid transition: ${status} + ${event}`);
       }
     case 'owner_bootstrap_allowed':
       switch (event) {
         case 'SIGN_IN_SUCCESS':
-          if (!state.user) throw new Error('No user on sign-in success');
+          if (!state.user) throw new SessionInvalidatedError('No user on sign-in success');
           return state.user.isEmailVerified
             ? { ...state, status: 'authenticated' }
             : { ...state, status: 'email_unverified' };
         case 'SIGN_OUT':
           return { ...state, status: 'unauthenticated', user: null };
         default:
-          throw new Error(`Invalid transition: ${status} + ${event}`);
+          throw new InvalidUserLifecycleTransitionError(`Invalid transition: ${status} + ${event}`);
       }
     case 'invited_signup_allowed':
       switch (event) {
         case 'SIGN_IN_SUCCESS':
-          if (!state.user) throw new Error('No user on sign-in success');
+          if (!state.user) throw new SessionInvalidatedError('No user on sign-in success');
           return state.user.isEmailVerified
             ? { ...state, status: 'authenticated' }
             : { ...state, status: 'email_unverified' };
         case 'SIGN_OUT':
           return { ...state, status: 'unauthenticated', user: null };
         default:
-          throw new Error(`Invalid transition: ${status} + ${event}`);
+          throw new InvalidUserLifecycleTransitionError(`Invalid transition: ${status} + ${event}`);
       }
     case 'authenticated':
       switch (event) {
@@ -60,7 +62,7 @@ export function authStateReducer(state: AuthContextState, event: AuthEvent): Aut
         case 'EMAIL_VERIFIED':
           return { ...state, status: 'authenticated' };
         default:
-          throw new Error(`Invalid transition: ${status} + ${event}`);
+          throw new InvalidUserLifecycleTransitionError(`Invalid transition: ${status} + ${event}`);
       }
     case 'email_unverified':
       switch (event) {
@@ -71,12 +73,12 @@ export function authStateReducer(state: AuthContextState, event: AuthEvent): Aut
         case 'USER_DISABLED':
           return { ...state, status: 'disabled' };
         default:
-          throw new Error(`Invalid transition: ${status} + ${event}`);
+          throw new InvalidUserLifecycleTransitionError(`Invalid transition: ${status} + ${event}`);
       }
     case 'disabled':
       // Disabled is terminal; all events keep it disabled
       return { ...state, status: 'disabled' };
     default:
-      throw new Error(`Unknown status: ${status}`);
+      throw new InvalidUserLifecycleTransitionError(`Unknown status: ${status}`);
   }
 }

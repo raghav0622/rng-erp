@@ -1,16 +1,20 @@
 // Firebase Auth Adapter (boundary only, no domain logic)
 
+import type { DomainResult } from '../domain/common/result';
+
+export interface AuthUser {
+  uid: string;
+  email: string;
+  displayName?: string;
+  photoURL?: string;
+  emailVerified: boolean;
+  disabled: boolean;
+}
+
 export interface FirebaseAuthAdapter {
-  signIn(email: string, password: string): Promise<void>;
-  signOut(): Promise<void>;
-  createUser(email: string, password: string): Promise<void>;
-  sendEmailVerification(): Promise<void>;
-  getCurrentUser(): Promise<{
-    uid: string;
-    email: string;
-    displayName?: string;
-    photoURL?: string;
-    emailVerified: boolean;
-    disabled: boolean;
-  } | null>;
+  signIn(email: string, password: string): Promise<DomainResult<void>>;
+  signOut(): Promise<DomainResult<void>>;
+  createUser(email: string, password: string): Promise<DomainResult<void>>;
+  sendEmailVerification(): Promise<DomainResult<void>>;
+  getCurrentUser(): Promise<DomainResult<AuthUser | null>>;
 }

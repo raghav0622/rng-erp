@@ -8,7 +8,7 @@
 // RBAC domain types for Phase 2
 
 import type { BaseEntity } from '../../abstract-client-repository/types';
-import type { Assignment as CanonicalAssignment } from '../assignment/contract';
+import type { AssignmentScope, Assignment as CanonicalAssignment } from '../assignment/contract';
 import type { Role } from './role';
 
 /**
@@ -29,7 +29,7 @@ export type RBACInput = {
   role: Role;
   feature: string;
   action: string;
-  resourceId?: string;
+  scope: AssignmentScope;
 };
 
 // RBACDecision is now strictly typed
@@ -43,5 +43,5 @@ export type RBACDecision =
   | { allowed: true; reason: RBACAllowReason }
   | { allowed: false; reason: RBACDenialReason };
 
-// Re-export canonical Assignment
+// Re-export canonical Assignment (do not redefine)
 export type Assignment = CanonicalAssignment;

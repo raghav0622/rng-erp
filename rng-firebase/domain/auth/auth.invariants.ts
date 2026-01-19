@@ -6,7 +6,7 @@
  * STATE GUARANTEES:
  * - authenticated ⇒ user !== null
  * - email_unverified ⇒ user.isEmailVerified === false
- * - disabled ⇒ user.isActive === false
+ * - disabled ⇒ user.lifecycle === 'disabled'
  *
  * OWNER INVARIANTS:
  * - There is exactly one owner
@@ -32,7 +32,7 @@ export const AUTH_INVARIANTS = {
   STATE_GUARANTEES: {
     authenticated: 'user !== null',
     email_unverified: 'user.isEmailVerified === false',
-    disabled: 'user.isActive === false',
+    disabled: "user.lifecycle === 'disabled'",
   },
   OWNER_INVARIANTS: {
     singleOwner: true,

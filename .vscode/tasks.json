@@ -1,0 +1,32 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Test adapter error mapping",
+			"type": "shell",
+			"command": "npx vitest run rng-firebase/adapters/adapter-error-mapping.spec.ts",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Test adapter error mapping (fixed import)",
+			"type": "shell",
+			"command": "npx vitest run rng-firebase/adapters/adapter-error-mapping.spec.ts",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Test adapter error mapping (fixed all imports)",
+			"type": "shell",
+			"command": "npx vitest run rng-firebase/adapters/adapter-error-mapping.spec.ts",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
+		}
+	]
+}

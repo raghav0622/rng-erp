@@ -8,4 +8,10 @@ export interface UserRepository extends IRepository<User> {
   count(): Promise<number>;
   create(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User>;
   update(id: string, patch: Partial<User>): Promise<User>;
+
+  /**
+   * Atomically create the owner user. Must be transactional.
+   * Second call MUST fail deterministically. Only AuthService may use this.
+   */
+  createOwnerAtomically(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User>;
 }

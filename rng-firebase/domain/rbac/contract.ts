@@ -1,5 +1,6 @@
 // Phase 0: RBAC Contracts (Pure)
 // Defines RBACInput and RBACDecision types and invariants for the kernel.
+import type { AssignmentScope } from '../assignment/contract';
 import type { Role } from './role';
 
 /**
@@ -18,7 +19,7 @@ export type RBACInput = {
   role: Role;
   feature: string;
   action: string;
-  resourceId?: string;
+  scope: AssignmentScope;
 };
 
 /**

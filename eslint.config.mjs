@@ -56,6 +56,43 @@ const eslintConfig = defineConfig([
       'import/newline-after-import': 'error',
       'import/no-duplicates': 'error',
 
+      // Forbidden kernel imports (Phase-0.8)
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'rng-firebase/domain', message: 'Domain is kernel-internal' },
+            { name: 'rng-firebase/repositories', message: 'Repositories are kernel-internal' },
+            { name: 'rng-firebase/adapters', message: 'Adapters are kernel-internal' },
+            {
+              name: 'rng-firebase/feature-execution-engine/internal',
+              message: 'Feature engine internals are kernel-internal',
+            },
+            {
+              name: 'rng-firebase/domain/rbac/rbac.engine',
+              message: 'RBAC engine is kernel-internal',
+            },
+            {
+              name: 'rng-firebase/domain/auth/auth.state-machine',
+              message: 'Auth state machine is kernel-internal',
+            },
+          ],
+          patterns: [
+            { group: ['rng-firebase/domain/**'], message: 'Domain is kernel-internal' },
+            {
+              group: ['rng-firebase/repositories/**'],
+              message: 'Repositories are kernel-internal',
+            },
+            { group: ['rng-firebase/adapters/**'], message: 'Adapters are kernel-internal' },
+            {
+              group: ['rng-firebase/feature-execution-engine/internal/**'],
+              message: 'Feature engine internals are kernel-internal',
+            },
+            { group: ['@kernel/internal/**'], message: 'Kernel internals are not public' },
+          ],
+        },
+      ],
+
       // Next.js specific
       '@next/next/no-img-element': 'error',
       '@next/next/no-html-link-for-pages': 'error',

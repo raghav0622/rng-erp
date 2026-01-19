@@ -15,7 +15,7 @@
 // - RBAC engine (domain/rbac/rbac.engine.ts)
 // - RBACService orchestrator (domain/rbac/rbac.service.ts)
 // - RoleRepository (repositories/role.repository.ts)
-// - AssignmentRepository (repositories/assignment.repository.ts)
+// - AssignmentRepository (repositories/assignment.repository.ts) // INTERNAL ONLY
 // - ExecutionContext creation
 // - Firebase wiring
 // - Audit plumbing

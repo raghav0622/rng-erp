@@ -1,0 +1,10 @@
+{
+  "name": "rng-firebase",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./feature-execution": "./feature-execution-engine/contracts/feature-execution-pipeline.ts"
+  },
+  "private": true,
+  "sideEffects": false
+}
