@@ -3,7 +3,7 @@
  * Prevents common form submission issues (double submission, validation errors, etc.)
  */
 
-import { AppError, Result } from '@/lib/types';
+import { AppError, AppErrorCode, Result } from '@/lib/types';
 import { FormErrorHandler } from '../types/errors';
 
 export interface FormSubmissionOptions<T> {
@@ -44,12 +44,18 @@ export class FormSubmissionHandler {
     try {
       const result = await onSubmit(values);
 
-      if (!result.success) {
-        this.handleError(result.error, options);
-        return result;
+      // Patch: support Result type ({ ok, value, error })
+      if (!result.ok) {
+        // Patch: wrap error as AppError if needed
+        const appError: AppError =
+          result.error instanceof Error && !(result.error as any).code
+            ? new AppError(result.error.message, AppErrorCode.INTERNAL_ERROR)
+            : (result.error as AppError);
+        this.handleError(appError, options);
+        return { ok: false, error: appError };
       }
 
-      options.onSuccess?.(result.data);
+      options.onSuccess?.(result.value);
       return result;
     } catch (error) {
       const appError =
@@ -57,13 +63,15 @@ export class FormSubmissionHandler {
           ? { code: 'INTERNAL_ERROR' as const, message: error.message }
           : { code: 'UNKNOWN' as const, message: 'Unknown error' };
 
-      const typedError: AppError = {
-        code: appError.code as any,
-        message: appError.message,
-      };
+      // Patch: ensure typedError is an instance of AppError
+      const typedError: AppError =
+        error instanceof AppError
+          ? error
+          : new AppError(appError.message, appError.code as AppErrorCode);
 
       this.handleError(typedError, options);
-      return { success: false, error: typedError };
+      // Patch: return Result type for error case
+      return { ok: false, error: typedError };
     } finally {
       this.isSubmitting = false;
     }

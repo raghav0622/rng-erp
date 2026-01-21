@@ -23,8 +23,8 @@ export type AuthEvent =
   | 'USER_DISABLED';
 
 // Invite contract (stub, no repo logic)
-export interface Invite {
-  id: string;
+import type { BaseEntity } from '../../abstract-client-repository/types';
+export interface Invite extends BaseEntity {
   email: string;
   role: string;
   permissions?: string[];

@@ -134,7 +134,8 @@ function FormSubmissionWrapper<S extends z.ZodTypeAny>({
         setSubmittedData(vals);
         setSubmittedErrors(null);
         downloadDataUrls(vals);
-        return { success: true, data: vals };
+        // Return Result type for compatibility
+        return { ok: true, value: vals };
       },
       {
         onSuccess: () => {

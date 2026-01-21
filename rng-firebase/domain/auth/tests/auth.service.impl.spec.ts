@@ -59,11 +59,11 @@ describe('AuthServiceImpl', () => {
 
   it('fails invited signup if invite not found', async () => {
     inviteRepo.findByEmail.mockResolvedValue(null);
-    const fakeInvite = {
+    const fakeInvite: any = {
       id: 'i1',
       email: 'invitee@example.com',
       role: 'manager',
-      status: 'pending' as const,
+      status: 'pending',
     };
     await expect(service.createUserWithInvite(fakeInvite, 'pw')).rejects.toThrow(
       SignupNotAllowedError,

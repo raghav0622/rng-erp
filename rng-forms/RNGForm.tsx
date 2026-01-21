@@ -192,7 +192,8 @@ export default function RNGForm<TValues extends FieldValues = any>({
             if (onSubmitSuccess) onSubmitSuccess();
             // Reset status after 2 seconds
             setTimeout(() => setSubmitStatus('idle'), 2000);
-            return { success: true, data: values };
+            // Return Result type for compatibility
+            return { ok: true, value: values };
           } catch (error) {
             setSubmitStatus('error');
             if (onSubmitError) onSubmitError(error);
@@ -437,8 +438,8 @@ export default function RNGForm<TValues extends FieldValues = any>({
                     submitStatus === 'success'
                       ? 'green'
                       : submitStatus === 'error'
-                      ? 'red'
-                      : undefined
+                        ? 'red'
+                        : undefined
                   }
                   leftSection={
                     submitStatus === 'success' ? (
@@ -451,8 +452,8 @@ export default function RNGForm<TValues extends FieldValues = any>({
                   {submitStatus === 'success'
                     ? 'Success!'
                     : submitStatus === 'error'
-                    ? 'Error'
-                    : submitLabel}
+                      ? 'Error'
+                      : submitLabel}
                 </Button>
                 {showReset && (
                   <Button

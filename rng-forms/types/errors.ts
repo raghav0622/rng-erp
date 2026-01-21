@@ -3,7 +3,47 @@
  * Provides discriminated union types for form-specific errors
  */
 
-import { AppError, AppErrorCode, CustomError } from '@/lib/types';
+// Polyfill for AppError, AppErrorCode, CustomError using Error class
+export enum AppErrorCode {
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  DB_ERROR = 'DB_ERROR',
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
+}
+
+export class AppError extends Error {
+  code: AppErrorCode;
+  details?: any;
+  constructor(message: string, code: AppErrorCode, details?: any) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    Object.setPrototypeOf(this, AppError.prototype);
+  }
+}
+
+export class CustomError extends Error {
+  code?: AppErrorCode;
+  details?: any;
+  constructor(message: string, code?: AppErrorCode, details?: any) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    Object.setPrototypeOf(this, CustomError.prototype);
+  }
+  static validation(errors: Record<string, string[]>, message = 'Please check the form fields') {
+    const err = new CustomError(message, AppErrorCode.VALIDATION_ERROR, {
+      validationErrors: errors,
+    });
+    return err;
+  }
+
+  // Patch: add static permission method to CustomError for compatibility
+  static permission(code: string, fieldName: string, message: string): CustomError {
+    const err = new CustomError(message, AppErrorCode.PERMISSION_DENIED, { fieldName });
+    return err;
+  }
+}
 
 export interface FormValidationError extends AppError {
   code: AppErrorCode.VALIDATION_ERROR;
@@ -31,6 +71,9 @@ export interface FormPermissionError extends AppError {
 
 export type FormError = FormValidationError | FormSubmissionError | FormPermissionError | AppError;
 
+// Patch: polyfill Result type for form-submission-handler
+export type Result<T> = { ok: true; value: T } | { ok: false; error: Error };
+
 export class FormErrorHandler {
   /**
    * Create a validation error for specific form fields
@@ -50,7 +93,7 @@ export class FormErrorHandler {
     message: string,
     originalError?: string,
   ): CustomError {
-    return new CustomError(AppErrorCode.INTERNAL_ERROR, message, { step, originalError });
+    return new CustomError(message, AppErrorCode.INTERNAL_ERROR, { step, originalError });
   }
 
   /**

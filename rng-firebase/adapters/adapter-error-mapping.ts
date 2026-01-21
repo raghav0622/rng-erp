@@ -63,6 +63,6 @@ export function mapAdapterError(error: unknown): Error {
  */
 export function toDomainResult<T>(fn: () => Promise<T>): Promise<DomainResult<T>> {
   return fn()
-    .then((value) => ({ ok: true, value }))
-    .catch((error) => ({ ok: false, error: mapAdapterError(error) }));
+    .then((value): { ok: true; value: T } => ({ ok: true, value }))
+    .catch((error): { ok: false; error: Error } => ({ ok: false, error: mapAdapterError(error) }));
 }
