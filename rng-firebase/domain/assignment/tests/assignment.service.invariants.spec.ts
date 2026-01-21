@@ -7,6 +7,7 @@ import type { RoleRepository } from '../../../repositories/role.repository';
 import type { UserRepository } from '../../../repositories/user.repository';
 import type { RolePermissions } from '../../rbac/rbac.types';
 import type { User } from '../../user/contract';
+import { compareAssignmentScope } from '../assignment.invariants';
 import type { AssignmentScope } from '../contract';
 const mockUserRepo = (users: User[]): UserRepository => {
   return {
@@ -131,8 +132,6 @@ const mockRoleRepo = (roles: RolePermissions[]): RoleRepository => {
 };
 const mockAssignmentRepo = (): AssignmentRepository => {
   let assignments: any[] = [];
-  // Import compareAssignmentScope from assignment.invariants
-  const { compareAssignmentScope } = require('../assignment.invariants');
   return {
     findOne: async () => null,
     count: async () => assignments.length,

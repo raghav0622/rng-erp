@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AuthDisabledError,
   EmailNotVerifiedError,
-  SignupNotAllowedError,
+  UserNotFoundError,
 } from '../domain/auth/auth.errors';
 import { ExecutionContextService } from '../domain/auth/execution-context.service';
 import { FeatureExecutionEngine } from '../feature-execution-engine/FeatureExecutionEngine';
+import { KernelInvariantViolationError } from '../kernel-errors';
 import { KernelExecutor } from '../kernel/kernel-executor';
 
 const userRepo = {
@@ -46,7 +47,7 @@ describe('KernelExecutor', () => {
 
   it('rejects unauthenticated execution', async () => {
     userRepo.getById.mockResolvedValue(null);
-    await expect(executor.execute(feature, 'badid', {})).rejects.toThrow(SignupNotAllowedError);
+    await expect(executor.execute(feature, 'badid', {})).rejects.toThrow(UserNotFoundError);
   });
 
   it('rejects disabled user', async () => {
@@ -59,17 +60,25 @@ describe('KernelExecutor', () => {
     await expect(executor.execute(feature, 'u1', {})).rejects.toThrow(EmailNotVerifiedError);
   });
 
-  it('rejects missing RBAC approval', async () => {
+  it('rejects missing RBAC approval (no scopeResolver)', async () => {
     userRepo.getById.mockResolvedValue(baseUser);
     rbacService.check.mockResolvedValue({ allowed: false, reason: 'ROLE_FORBIDDEN' });
-    await expect(executor.execute(feature, 'u1', {})).rejects.toThrow(SignupNotAllowedError);
+    await expect(executor.execute(feature, 'u1', {})).rejects.toThrow(
+      KernelInvariantViolationError,
+    );
   });
 
   it('executes feature if all checks pass', async () => {
     userRepo.getById.mockResolvedValue(baseUser);
     rbacService.check.mockResolvedValue({ allowed: true, reason: 'ROLE_ALLOWED' });
     feature.execute.mockResolvedValue('ok');
-    const result = await executor.execute(feature, 'u1', {});
+    const featureWithScope = {
+      ...feature,
+      scopeResolver: (): import('../domain/assignment/contract').AssignmentScope => ({
+        type: 'feature',
+      }),
+    };
+    const result = await executor.execute(featureWithScope, 'u1', {});
     expect(result).toBe('ok');
   });
 });

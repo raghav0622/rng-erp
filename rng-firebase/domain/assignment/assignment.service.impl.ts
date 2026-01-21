@@ -9,6 +9,8 @@ import { AssignmentInvariantViolationError } from './assignment.invariants';
 import type { AssignmentService } from './assignment.service';
 import type { Assignment, AssignmentScope } from './contract';
 
+import { ExecutionContextService } from '../auth/execution-context.service';
+
 export class AssignmentServiceImpl implements AssignmentService {
   constructor(
     private readonly repo: AssignmentRepository,
@@ -107,7 +109,6 @@ export class AssignmentServiceImpl implements AssignmentService {
       scope: input.scope,
     } as Assignment);
     // Invalidate all execution contexts after assignment change
-    const { ExecutionContextService } = require('../auth/execution-context.service');
     ExecutionContextService.invalidateAll();
   }
 
@@ -115,7 +116,6 @@ export class AssignmentServiceImpl implements AssignmentService {
     // Soft delete or hard delete as per repo contract
     await this.repo.delete(id);
     // Invalidate all execution contexts after assignment change
-    const { ExecutionContextService } = require('../auth/execution-context.service');
     ExecutionContextService.invalidateAll();
   }
 }

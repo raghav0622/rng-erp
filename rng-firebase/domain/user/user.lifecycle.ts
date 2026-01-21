@@ -1,3 +1,20 @@
+/**
+ * Asserts that a user is allowed to sign in.
+ * Throws with code 'USER_DISABLED' or 'EMAIL_NOT_VERIFIED' as appropriate.
+ */
+import { AuthDisabledError, EmailNotVerifiedError } from '../auth/auth.errors';
+
+export function assertUserSignInAllowed(user: {
+  lifecycle: UserLifecycle;
+  isEmailVerified: boolean;
+}): void {
+  if (user.lifecycle === 'disabled') {
+    throw new AuthDisabledError();
+  }
+  if (!user.isEmailVerified) {
+    throw new EmailNotVerifiedError();
+  }
+}
 // Explicit user lifecycle finite state machine and transition guards
 // LAW: invited → active → disabled (terminal)
 

@@ -1,8 +1,11 @@
 import { RBACErrorBase } from '../../kernel/errors/RBACErrorBase';
+import type { RBACDenialReason } from './rbac.reasons';
 
 export class RBACForbiddenError extends RBACErrorBase {
-  constructor(message = 'RBAC: Access denied') {
+  readonly reason: RBACDenialReason;
+  constructor(reason: RBACDenialReason, message = 'RBAC: Access denied') {
     super(message, 'RBAC_FORBIDDEN');
+    this.reason = reason;
     Object.setPrototypeOf(this, RBACForbiddenError.prototype);
   }
 }

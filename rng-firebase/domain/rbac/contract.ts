@@ -1,31 +1,4 @@
 // Phase 0: RBAC Contracts (Pure)
 // Defines RBACInput and RBACDecision types and invariants for the kernel.
-import type { AssignmentScope } from '../assignment/contract';
-import type { Role } from './role';
-
-/**
- * RBACInput contract
- *
- * Invariants:
- * - RBAC is pure
- * - Deterministic
- * - Side-effect free
- * - No repositories
- * - No React
- * - No Firebase
- */
-export type RBACInput = {
-  userId: string;
-  role: Role;
-  feature: string;
-  action: string;
-  scope: AssignmentScope;
-};
-
-/**
- * RBACDecision contract
- */
-export type RBACDecision = {
-  allowed: boolean;
-  reason: string;
-};
+// Re-export canonical RBAC types from rbac.types.ts
+export type { RBACDecision, RBACInput } from './rbac.types';

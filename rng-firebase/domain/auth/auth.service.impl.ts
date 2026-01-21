@@ -3,6 +3,7 @@ import type { AssignmentRepository } from '../../repositories/assignment.reposit
 import type { AuditRepository } from '../../repositories/audit.repository';
 import type { InviteRepository } from '../../repositories/invite.repository';
 import type { UserRepository } from '../../repositories/user.repository';
+import { assertUserSignInAllowed } from '../user/user.lifecycle';
 import {
   AuthDisabledError,
   EmailNotVerifiedError,
@@ -50,23 +51,18 @@ export class AuthServiceImpl implements AuthService {
       });
       throw new UserNotFoundError('User not found');
     }
-    if (user.lifecycle === 'disabled') {
+    try {
+      assertUserSignInAllowed(user);
+    } catch (err: any) {
       await this.auditRepo.record({
         type: 'sign_in_failed',
         email,
-        reason: 'User disabled',
+        reason: err?.message || 'User not allowed to sign in',
         timestamp: Date.now(),
       });
-      throw new AuthDisabledError();
-    }
-    if (!user.isEmailVerified) {
-      await this.auditRepo.record({
-        type: 'sign_in_failed',
-        email,
-        reason: 'Email not verified',
-        timestamp: Date.now(),
-      });
-      throw new EmailNotVerifiedError();
+      if (err.code === 'USER_DISABLED') throw new AuthDisabledError();
+      if (err.code === 'EMAIL_NOT_VERIFIED') throw new EmailNotVerifiedError();
+      throw err;
     }
     await this.auditRepo.record({
       type: 'sign_in_success',

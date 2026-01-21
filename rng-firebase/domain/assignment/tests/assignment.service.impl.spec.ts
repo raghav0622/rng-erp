@@ -10,10 +10,9 @@ import type { User } from '../../user/contract';
 import type { AssignmentScope } from '../contract';
 
 import { RepositoryError, RepositoryErrorCode } from '../../../abstract-client-repository/errors';
+import { compareAssignmentScope } from '../assignment.invariants';
 const mockAssignmentRepo = (): AssignmentRepository => {
   let assignments: any[] = [];
-  // Import compareAssignmentScope from assignment.invariants
-  const { compareAssignmentScope } = require('../assignment.invariants');
   return {
     findOne: async () => null,
     count: async () => assignments.length,

@@ -57,18 +57,16 @@ export class OwnerAlreadyExistsError extends AuthErrorBase {
   }
 }
 
-export class InvalidCredentialsError extends Error {
-  readonly code = 'INVALID_CREDENTIALS';
+export class InvalidCredentialsError extends AuthErrorBase {
   constructor(message = 'Invalid credentials') {
-    super(message);
+    super(message, 'INVALID_CREDENTIALS');
     Object.setPrototypeOf(this, InvalidCredentialsError.prototype);
   }
 }
 
-export class OwnerBootstrapError extends Error {
-  readonly code = 'OWNER_BOOTSTRAP_ERROR';
+export class OwnerBootstrapError extends AuthErrorBase {
   constructor(message = 'Owner bootstrap violation') {
-    super(message);
+    super(message, 'OWNER_BOOTSTRAP_ERROR');
     Object.setPrototypeOf(this, OwnerBootstrapError.prototype);
   }
 }

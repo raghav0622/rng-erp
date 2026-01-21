@@ -43,18 +43,14 @@ export class KernelExecutor {
     const ctx = ExecutionContextService.create(user);
 
     // 3. RBAC check
-    // Scope must be resolved explicitly via feature.scopeResolver or argument
+    // Scope must be resolved explicitly via feature.scopeResolver only
     let scope: AssignmentScope | undefined = undefined;
     if (typeof feature.scopeResolver === 'function') {
       scope = feature.scopeResolver(ctx, input);
     }
-    // Allow explicit argument override (if provided)
-    if (!scope && input && typeof input === 'object' && 'scope' in input && (input as any).scope) {
-      scope = (input as any).scope as AssignmentScope;
-    }
     if (!scope) {
       throw new KernelInvariantViolationError(
-        'Assignment scope could not be resolved deterministically',
+        'Assignment scope could not be resolved deterministically (no scopeResolver or returned undefined)',
       );
     }
     await this.rbacService.check({
@@ -69,8 +65,16 @@ export class KernelExecutor {
     try {
       return await this.engine.executeFeature(feature, ctx, input);
     } catch (err: any) {
-      // 5. Error wrapping
-      if (err instanceof FeatureExecutionError) throw err;
+      // 5. Error wrapping: only wrap non-Auth, non-RBAC errors
+      if (
+        err instanceof FeatureExecutionError ||
+        err instanceof AuthDisabledError ||
+        err instanceof EmailNotVerifiedError ||
+        err instanceof UserNotFoundError ||
+        (err && err.name === 'RBACForbiddenError')
+      ) {
+        throw err;
+      }
       throw new FeatureExecutionError(
         err?.message || 'Unknown feature error',
         feature.feature,
