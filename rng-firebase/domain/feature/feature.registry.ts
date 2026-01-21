@@ -1,3 +1,5 @@
+import { KernelInvariantViolationError } from '../../kernel-errors';
+import { RBACMisconfigurationError } from '../rbac/rbac.errors';
 /**
  * Feature registry is externally initialized by the host application at kernel bootstrap.
  * Kernel does not define or own feature definitions. No features are shipped by the kernel.
@@ -33,10 +35,7 @@ let _initialized = false;
  */
 export function initializeFeatureRegistry(defs: readonly FeatureDefinition[]): void {
   if (_initialized) {
-    // Import error from kernel-errors to avoid circular dep
-    throw Object.assign(new Error('Not part of sealed kernel'), {
-      code: 'KERNEL_INVARIANT_VIOLATION',
-    });
+    throw new KernelInvariantViolationError('Feature registry already initialized');
   }
   _featureRegistry = Object.freeze(
     defs.map((f) => Object.freeze({ ...f, actions: Object.freeze([...f.actions]) })),
@@ -50,10 +49,7 @@ export function initializeFeatureRegistry(defs: readonly FeatureDefinition[]): v
  */
 export function getFeatureRegistry(): readonly FeatureDefinition[] {
   if (!_initialized || !_featureRegistry) {
-    // Import error from rbac.errors to avoid circular dep
-    throw Object.assign(new Error('RBAC: Misconfiguration detected'), {
-      code: 'RBAC_MISCONFIGURATION',
-    });
+    throw new RBACMisconfigurationError('Feature registry not initialized');
   }
   return _featureRegistry;
 }

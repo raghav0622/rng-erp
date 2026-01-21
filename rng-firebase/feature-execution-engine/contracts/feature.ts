@@ -26,6 +26,14 @@ export interface CommandFeature<TInput, TResult> {
   requiresAuth: true;
   requiresRBAC: true;
   execute(ctx: ExecutionContext, input: TInput): Promise<TResult>;
+  /**
+   * Optional: Deterministically resolve assignment scope for RBAC enforcement.
+   * Must be a pure function of context and input.
+   */
+  scopeResolver?: (
+    ctx: ExecutionContext,
+    input: TInput,
+  ) => import('../../domain/assignment/contract').AssignmentScope;
 }
 
 /**

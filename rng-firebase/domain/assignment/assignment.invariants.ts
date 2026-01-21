@@ -1,6 +1,7 @@
 // Assignment invariants for kernel enforcement
 // All assignment creation must go through AssignmentService
 
+import { AssignmentErrorBase } from '../../kernel/errors/AssignmentErrorBase';
 import type { Assignment, AssignmentScope } from './contract';
 /**
  * Throws AssignmentInvariantViolationError if a duplicate assignment exists for the same userId, feature, action, and scope.
@@ -33,14 +34,40 @@ export function assertNoDuplicateAssignment(
 }
 
 /**
- * Compares two AssignmentScope objects for deep equality.
+ * Strict, deterministic, and future-proof comparison of AssignmentScope objects.
+ * - Returns true only if both scopes are of the same type and all relevant properties match exactly.
+ * - For 'feature' type: must not have resourceId or any extra properties.
+ * - For 'resource' type: resourceId must match and no extra properties allowed.
+ * - Fails closed for unknown types or extra properties.
+ *
+ * This function is used by both the service and repository layers to guarantee uniqueness enforcement is robust and cannot be bypassed by malformed or extended scope objects.
  */
 export function compareAssignmentScope(a: AssignmentScope, b: AssignmentScope): boolean {
   if (a.type !== b.type) return false;
-  if (a.type === 'feature') return true;
+  // Feature scope: must not have resourceId or extra properties
+  if (a.type === 'feature' && b.type === 'feature') {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== 1 || bKeys.length !== 1) return false;
+    return true;
+  }
+  // Resource scope: must have matching resourceId and no extra properties
   if (a.type === 'resource' && b.type === 'resource') {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== 2 || bKeys.length !== 2) return false;
+    if (!('resourceId' in a) || !('resourceId' in b)) return false;
     return a.resourceId === b.resourceId;
   }
+  // FeatureDoc scope: must have matching docId and no extra properties
+  if (a.type === 'featureDoc' && b.type === 'featureDoc') {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== 2 || bKeys.length !== 2) return false;
+    if (!('docId' in a) || !('docId' in b)) return false;
+    return a.docId === b.docId;
+  }
+  // Unknown or future scope types: fail closed
   return false;
 }
 
@@ -52,10 +79,9 @@ export const ASSIGNMENT_INVARIANTS = {
   REPOSITORY_INTERNAL_ONLY: true,
 };
 
-export class AssignmentInvariantViolationError extends Error {
-  readonly code = 'ASSIGNMENT_INVARIANT_VIOLATION';
+export class AssignmentInvariantViolationError extends AssignmentErrorBase {
   constructor(message: string) {
-    super(message);
+    super(message, 'ASSIGNMENT_INVARIANT_VIOLATION');
     Object.setPrototypeOf(this, AssignmentInvariantViolationError.prototype);
   }
 }

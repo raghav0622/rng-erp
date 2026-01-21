@@ -1,10 +1,11 @@
 // RBACService implementation for AssignmentScope model
 import type { AssignmentRepository } from '../../repositories/assignment.repository';
 import type { RoleRepository } from '../../repositories/role.repository';
+import { getFeatureRegistry } from '../feature/feature.registry';
 import { evaluateRBAC } from './rbac.engine';
-import { RBACMisconfigurationError } from './rbac.errors';
+import { RBACForbiddenError } from './rbac.errors';
 import type { RBACService } from './rbac.service';
-import type { RBACDecision, RBACInput } from './rbac.types';
+import type { RBACInput } from './rbac.types';
 
 export class RBACServiceImpl implements RBACService {
   constructor(
@@ -12,10 +13,23 @@ export class RBACServiceImpl implements RBACService {
     private readonly assignmentRepo: AssignmentRepository,
   ) {}
 
-  async check(input: RBACInput): Promise<RBACDecision> {
+  async check(input: RBACInput): Promise<void> {
+    // Feature/action existence validation
+    let featureDef: { feature: string; actions: readonly string[] } | undefined;
+    try {
+      featureDef = getFeatureRegistry().find((f) => f.feature === input.feature);
+    } catch (err: any) {
+      throw new RBACForbiddenError('Feature registry not initialized');
+    }
+    if (!featureDef) {
+      throw new RBACForbiddenError('Feature does not exist');
+    }
+    if (!featureDef.actions.includes(input.action)) {
+      throw new RBACForbiddenError('Action does not exist for feature');
+    }
+
     const rolePermissions = await this.roleRepo.getByRoleAndFeature(input.role, input.feature);
-    if (!rolePermissions)
-      throw new RBACMisconfigurationError('Role configuration missing for RBAC');
+    if (!rolePermissions) throw new RBACForbiddenError('Role configuration missing for RBAC');
     let assignment = null;
     if (input.role === 'employee') {
       assignment = await this.assignmentRepo.getByUserIdFeatureActionScope(
@@ -25,6 +39,10 @@ export class RBACServiceImpl implements RBACService {
         input.scope,
       );
     }
-    return evaluateRBAC(input, rolePermissions, assignment);
+    const decision = evaluateRBAC(input, rolePermissions, assignment);
+    if (!decision.allowed) {
+      throw new RBACForbiddenError('RBAC access denied');
+    }
+    // If allowed, return void (success)
   }
 }

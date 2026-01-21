@@ -1,8 +1,8 @@
-// ExecutionContextInvalidError.ts
-export class ExecutionContextInvalidError extends Error {
-  readonly code = 'EXECUTION_CONTEXT_INVALID';
+import { AuthErrorBase } from '../../kernel/errors/AuthErrorBase';
+
+export class ExecutionContextInvalidError extends AuthErrorBase {
   constructor(message: string) {
-    super(message);
+    super(message, 'EXECUTION_CONTEXT_INVALID');
     Object.setPrototypeOf(this, ExecutionContextInvalidError.prototype);
   }
 }

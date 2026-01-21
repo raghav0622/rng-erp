@@ -1,8 +1,12 @@
 // RBACService orchestrator for kernel (Phase 2)
-import type { RBACDecision, RBACInput } from './rbac.types';
+import type { RBACInput } from './rbac.types';
 
 export interface RBACService {
-  check(input: RBACInput): Promise<RBACDecision>;
+  /**
+   * Checks RBAC access for the given input. Throws RBACForbiddenError on denial.
+   * Returns void on success.
+   */
+  check(input: RBACInput): Promise<void>;
 }
 
 // Example stub for orchestration logic (no implementation in Phase 2)

@@ -5,10 +5,7 @@ import type { AssignmentRepository } from '../../repositories/assignment.reposit
 import type { RoleRepository } from '../../repositories/role.repository';
 import type { UserRepository } from '../../repositories/user.repository';
 import { RBAC_INVARIANTS } from '../rbac/rbac.invariants';
-import {
-  assertNoDuplicateAssignment,
-  AssignmentInvariantViolationError,
-} from './assignment.invariants';
+import { AssignmentInvariantViolationError } from './assignment.invariants';
 import type { AssignmentService } from './assignment.service';
 import type { Assignment, AssignmentScope } from './contract';
 
@@ -64,18 +61,43 @@ export class AssignmentServiceImpl implements AssignmentService {
     }
 
     // 8. Scope correctness
-    if (input.scope.type === 'resource' && !input.scope.resourceId) {
-      throw new AssignmentInvariantViolationError('Resource-scoped assignment missing resourceId');
+    if (input.scope.type === 'resource') {
+      if (!('resourceId' in input.scope) || !input.scope.resourceId) {
+        throw new AssignmentInvariantViolationError(
+          'Resource-scoped assignment missing resourceId',
+        );
+      }
+      if (Object.keys(input.scope).length !== 2) {
+        throw new AssignmentInvariantViolationError(
+          'Resource-scoped assignment must not have extra properties',
+        );
+      }
     }
-    if (input.scope.type === 'feature' && input.scope.hasOwnProperty('resourceId')) {
-      throw new AssignmentInvariantViolationError(
-        'Feature-scoped assignment must not have resourceId',
-      );
+    if (input.scope.type === 'feature') {
+      if ('resourceId' in input.scope || 'docId' in input.scope) {
+        throw new AssignmentInvariantViolationError(
+          'Feature-scoped assignment must not have resourceId or docId',
+        );
+      }
+      if (Object.keys(input.scope).length !== 1) {
+        throw new AssignmentInvariantViolationError(
+          'Feature-scoped assignment must not have extra properties',
+        );
+      }
+    }
+    if (input.scope.type === 'featureDoc') {
+      if (!('docId' in input.scope) || !input.scope.docId) {
+        throw new AssignmentInvariantViolationError('FeatureDoc-scoped assignment missing docId');
+      }
+      if (Object.keys(input.scope).length !== 2) {
+        throw new AssignmentInvariantViolationError(
+          'FeatureDoc-scoped assignment must not have extra properties',
+        );
+      }
     }
 
-    // 9. Duplicate prevention
-    const allAssignments = await this.repo.getAllByUserId(input.userId);
-    assertNoDuplicateAssignment(allAssignments, input);
+    // 9. Duplicate prevention (repository-level uniqueness enforcement)
+    await this.repo.ensureAssignmentUnique(input.userId, input.feature, input.action, input.scope);
 
     // 10. Create assignment
     await this.repo.create({
@@ -84,10 +106,16 @@ export class AssignmentServiceImpl implements AssignmentService {
       action: input.action,
       scope: input.scope,
     } as Assignment);
+    // Invalidate all execution contexts after assignment change
+    const { ExecutionContextService } = require('../auth/execution-context.service');
+    ExecutionContextService.invalidateAll();
   }
 
   async revokeAssignment(id: string): Promise<void> {
     // Soft delete or hard delete as per repo contract
     await this.repo.delete(id);
+    // Invalidate all execution contexts after assignment change
+    const { ExecutionContextService } = require('../auth/execution-context.service');
+    ExecutionContextService.invalidateAll();
   }
 }

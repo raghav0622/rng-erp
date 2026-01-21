@@ -131,6 +131,8 @@ const mockRoleRepo = (roles: RolePermissions[]): RoleRepository => {
 };
 const mockAssignmentRepo = (): AssignmentRepository => {
   let assignments: any[] = [];
+  // Import compareAssignmentScope from assignment.invariants
+  const { compareAssignmentScope } = require('../assignment.invariants');
   return {
     findOne: async () => null,
     count: async () => assignments.length,
@@ -148,7 +150,7 @@ const mockAssignmentRepo = (): AssignmentRepository => {
           a.userId === userId &&
           a.feature === feature &&
           a.action === action &&
-          JSON.stringify(a.scope) === JSON.stringify(scope),
+          compareAssignmentScope(a.scope, scope),
       ) || null,
     getById: async (id: string) => assignments.find((a) => a.id === id) || null,
     getOptional: async (id: string) => assignments.find((a) => a.id === id) || null,
@@ -166,6 +168,7 @@ const mockAssignmentRepo = (): AssignmentRepository => {
     ensureExists: async () => {},
     ensureNotExists: async () => {},
     ensureUnique: async () => {},
+    ensureAssignmentUnique: async () => {},
     touch: async () => {},
     assertNotDeleted: async () => {},
     runAtomic: async (id: string) => assignments.find((a) => a.id === id) || ({} as any),

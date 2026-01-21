@@ -1,7 +1,12 @@
-// FeatureExecutionError — all feature-thrown errors must be wrapped in this error
-export class FeatureExecutionError extends Error {
-  readonly code = 'FEATURE_EXECUTION_ERROR';
-  constructor(message: string, readonly feature: string, readonly action: string) {
-    super(message);
+import { FeatureErrorBase } from '../../kernel/errors/FeatureErrorBase';
+
+export class FeatureExecutionError extends FeatureErrorBase {
+  readonly feature: string;
+  readonly action: string;
+  constructor(message: string, feature: string, action: string) {
+    super(message, 'FEATURE_EXECUTION_ERROR');
+    this.feature = feature;
+    this.action = action;
+    Object.setPrototypeOf(this, FeatureExecutionError.prototype);
   }
 }

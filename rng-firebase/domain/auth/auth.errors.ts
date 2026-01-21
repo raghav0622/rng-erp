@@ -1,62 +1,56 @@
-export class InviteRevokedError extends Error {
-  readonly code = 'INVITE_REVOKED';
+import { AuthErrorBase } from '../../kernel/errors/AuthErrorBase';
+
+export class InviteRevokedError extends AuthErrorBase {
   constructor(message = 'Invite has been revoked') {
-    super(message);
+    super(message, 'INVITE_REVOKED');
     Object.setPrototypeOf(this, InviteRevokedError.prototype);
   }
 }
 
-export class InviteExpiredError extends Error {
-  readonly code = 'INVITE_EXPIRED';
+export class InviteExpiredError extends AuthErrorBase {
   constructor(message = 'Invite has expired') {
-    super(message);
+    super(message, 'INVITE_EXPIRED');
     Object.setPrototypeOf(this, InviteExpiredError.prototype);
   }
 }
 
-export class UserNotFoundError extends Error {
-  readonly code = 'USER_NOT_FOUND';
+export class UserNotFoundError extends AuthErrorBase {
   constructor(message = 'User not found') {
-    super(message);
+    super(message, 'USER_NOT_FOUND');
     Object.setPrototypeOf(this, UserNotFoundError.prototype);
   }
 }
 
-export class SessionInvalidatedError extends Error {
-  readonly code = 'SESSION_INVALIDATED';
+export class SessionInvalidatedError extends AuthErrorBase {
   constructor(message = 'Session has been invalidated') {
-    super(message);
+    super(message, 'SESSION_INVALIDATED');
     Object.setPrototypeOf(this, SessionInvalidatedError.prototype);
   }
 }
 // Typed errors for Auth domain (Phase 1)
 
-export class AuthDisabledError extends Error {
-  readonly code = 'AUTH_DISABLED';
+export class AuthDisabledError extends AuthErrorBase {
   constructor(message = 'User is disabled') {
-    super(message);
+    super(message, 'AUTH_DISABLED');
     Object.setPrototypeOf(this, AuthDisabledError.prototype);
   }
 }
 
-export class EmailNotVerifiedError extends Error {
-  readonly code = 'EMAIL_NOT_VERIFIED';
+export class EmailNotVerifiedError extends AuthErrorBase {
   constructor(message = 'Email not verified') {
-    super(message);
+    super(message, 'EMAIL_NOT_VERIFIED');
     Object.setPrototypeOf(this, EmailNotVerifiedError.prototype);
   }
 }
 
-export class SignupNotAllowedError extends Error {
-  readonly code = 'SIGNUP_NOT_ALLOWED';
+export class SignupNotAllowedError extends AuthErrorBase {
   constructor(message = 'Signup is not allowed') {
-    super(message);
+    super(message, 'SIGNUP_NOT_ALLOWED');
     Object.setPrototypeOf(this, SignupNotAllowedError.prototype);
   }
 }
 
-export class OwnerAlreadyExistsError extends Error {
-  readonly code = 'OWNER_ALREADY_EXISTS';
+export class OwnerAlreadyExistsError extends AuthErrorBase {
   constructor(message = 'Owner already exists') {
     super(message);
     Object.setPrototypeOf(this, OwnerAlreadyExistsError.prototype);

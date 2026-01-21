@@ -1,8 +1,8 @@
+import { KernelErrorBase } from '../../kernel/errors/KernelErrorBase';
 // KernelAtomicityViolationError for atomicity enforcement
-class KernelAtomicityViolationError extends Error {
-  readonly code = 'KERNEL_ATOMICITY_VIOLATION';
+export class KernelAtomicityViolationError extends KernelErrorBase {
   constructor(message: string) {
-    super(message);
+    super(message, 'KERNEL_ATOMICITY_VIOLATION');
     Object.setPrototypeOf(this, KernelAtomicityViolationError.prototype);
   }
 }
@@ -10,7 +10,7 @@ class KernelAtomicityViolationError extends Error {
 // InviteService: Enforces all invite invariants and atomicity for the kernel
 import type { InviteRepository } from '../../repositories/invite.repository';
 import type { UserRepository } from '../../repositories/user.repository';
-import { InviteRevokedError, SignupNotAllowedError } from './auth.errors';
+import { SignupNotAllowedError } from './auth.errors';
 import type { Invite } from './auth.types';
 
 export class InviteService {
@@ -37,38 +37,18 @@ export class InviteService {
   /**
    * Accept invite + user creation must be atomic. Enforces expiry, single-use, revoked.
    */
+  /**
+   * Atomicity stub: This implementation does NOT guarantee atomicity between invite acceptance and user creation.
+   * Always throws KernelAtomicityViolationError. Do NOT silently degrade.
+   */
   async acceptInviteAndCreateUser(
     email: string,
     password: string,
     displayName: string,
   ): Promise<void> {
-    // Find invite by email
-    const invite = await this.inviteRepo.findByEmail(email);
-    if (!invite) throw new SignupNotAllowedError('Invite not found');
-    if (invite.status === 'revoked') throw new InviteRevokedError();
-    // If we ever support expiry, check here (status/type or timestamp)
-    // if (invite.status === 'expired') throw new InviteExpiredError();
-    if (invite.status !== 'pending') throw new SignupNotAllowedError('Invite already used');
-
-    // Atomic mutation: mark invite accepted and create user
-    await this.inviteRepo.runAtomic(invite.id, (current) => {
-      if (!current) throw new SignupNotAllowedError('Invite not found');
-      if (current.status === 'revoked') throw new InviteRevokedError();
-      // if (current.status === 'expired') throw new InviteExpiredError();
-      if (current.status !== 'pending') throw new SignupNotAllowedError('Invite already used');
-      // Mark invite as accepted
-      return { status: 'accepted' };
-    });
-
-    // Create user with correct lifecycle and source
-    await this.userRepo.create({
-      email,
-      displayName,
-      role: invite.role,
-      isEmailVerified: false,
-      lifecycle: 'invited',
-      source: 'invite',
-    });
+    throw new KernelAtomicityViolationError(
+      'Invite acceptance and user creation is not atomic. This is an intentional stub.',
+    );
   }
 
   async revokeInvite(inviteId: string): Promise<void> {

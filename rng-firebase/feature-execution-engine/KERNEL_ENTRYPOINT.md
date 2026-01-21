@@ -4,17 +4,6 @@ This module is the **only public entrypoint** for executing features in the kern
 
 ## Usage
 
-```ts
-import { executeKernelFeature, executeKernelQuery } from './kernel-entrypoint';
-import type { CommandFeature, QueryFeature } from './contracts/feature';
-import type { ExecutionContext } from '../domain/auth/execution-context';
-
-const feature: CommandFeature<{ foo: string }, { bar: number }> = { ... };
-const ctx: ExecutionContext = ...; // Must be created by ExecutionContextService
-
-const result = await executeKernelFeature(feature, ctx, { foo: 'baz' });
-```
-
 ## Invariants
 
 - All context creation, RBAC, and error mapping must be handled here.

@@ -56,7 +56,6 @@ const eslintConfig = defineConfig([
       'import/newline-after-import': 'error',
       'import/no-duplicates': 'error',
 
-      // Forbidden kernel imports (Phase-0.8)
       'no-restricted-imports': [
         'error',
         {

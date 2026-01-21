@@ -1,8 +1,8 @@
-// ExecutionContextStaleError.ts
-export class ExecutionContextStaleError extends Error {
-  readonly code = 'EXECUTION_CONTEXT_STALE';
+import { AuthErrorBase } from '../../kernel/errors/AuthErrorBase';
+
+export class ExecutionContextStaleError extends AuthErrorBase {
   constructor(message: string) {
-    super(message);
+    super(message, 'EXECUTION_CONTEXT_STALE');
     Object.setPrototypeOf(this, ExecutionContextStaleError.prototype);
   }
 }

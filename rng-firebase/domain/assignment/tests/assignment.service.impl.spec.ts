@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { AssignmentInvariantViolationError } from '../assignment.invariants';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { initializeFeatureRegistry } from '../../feature/feature.registry';
 import { AssignmentServiceImpl } from '../assignment.service.impl';
 
 import type { AssignmentRepository } from '../../../repositories/assignment.repository';
@@ -9,13 +9,16 @@ import type { RolePermissions } from '../../rbac/rbac.types';
 import type { User } from '../../user/contract';
 import type { AssignmentScope } from '../contract';
 
+import { RepositoryError, RepositoryErrorCode } from '../../../abstract-client-repository/errors';
 const mockAssignmentRepo = (): AssignmentRepository => {
   let assignments: any[] = [];
+  // Import compareAssignmentScope from assignment.invariants
+  const { compareAssignmentScope } = require('../assignment.invariants');
   return {
     findOne: async () => null,
     count: async () => assignments.length,
-    update: async () => ({} as any),
-    upsert: async () => ({} as any),
+    update: async () => ({}) as any,
+    upsert: async () => ({}) as any,
     getAllByUserId: async (userId: string) => assignments.filter((a) => a.userId === userId),
     getByUserIdFeatureActionScope: async (
       userId: string,
@@ -28,7 +31,7 @@ const mockAssignmentRepo = (): AssignmentRepository => {
           a.userId === userId &&
           a.feature === feature &&
           a.action === action &&
-          JSON.stringify(a.scope) === JSON.stringify(scope),
+          compareAssignmentScope(a.scope, scope),
       ) || null,
     getById: async (id: string) => assignments.find((a) => a.id === id) || null,
     getOptional: async (id: string) => assignments.find((a) => a.id === id) || null,
@@ -46,6 +49,18 @@ const mockAssignmentRepo = (): AssignmentRepository => {
     ensureExists: async () => {},
     ensureNotExists: async () => {},
     ensureUnique: async () => {},
+    ensureAssignmentUnique: async (userId, feature, action, scope) => {
+      const duplicate = assignments.find(
+        (a) =>
+          a.userId === userId &&
+          a.feature === feature &&
+          a.action === action &&
+          compareAssignmentScope(a.scope, scope),
+      );
+      if (duplicate) {
+        throw new RepositoryError('Duplicate assignment', RepositoryErrorCode.FAILED_PRECONDITION);
+      }
+    },
     touch: async () => {},
     assertNotDeleted: async () => {},
     runAtomic: async (id: string) => assignments.find((a) => a.id === id) || ({} as any),
@@ -159,25 +174,29 @@ const mockRoleRepo = (roles: RolePermissions[]): RoleRepository => {
     find: async () => ({ data: roles, nextCursor: undefined, hasMore: false }),
     findOne: async () => null,
     count: async () => roles.length,
-    create: async () => ({} as any),
-    update: async () => ({} as any),
-    upsert: async () => ({} as any),
+    create: async () => ({}) as any,
+    update: async () => ({}) as any,
+    upsert: async () => ({}) as any,
     delete: async () => {},
     softDelete: async () => {},
-    restore: async () => ({} as any),
+    restore: async () => ({}) as any,
     getMany: async () => [],
     ensureExists: async () => {},
     ensureNotExists: async () => {},
     ensureUnique: async () => {},
     touch: async () => {},
     assertNotDeleted: async () => {},
-    runAtomic: async () => ({} as any),
+    runAtomic: async () => ({}) as any,
     createMany: async () => ({ successCount: 0, failureCount: 0, results: [] }),
     diff: () => ({}),
   };
 };
 
 describe('AssignmentServiceImpl', () => {
+  beforeAll(() => {
+    // Initialize the feature registry for all tests
+    initializeFeatureRegistry([{ feature: 'f', actions: ['a', 'b'] }]);
+  });
   it('should create assignment if unique', async () => {
     const repo = mockAssignmentRepo();
     const userRepo = mockUserRepo([
@@ -252,7 +271,9 @@ describe('AssignmentServiceImpl', () => {
         action: 'a',
         scope: { type: 'feature' },
       }),
-    ).rejects.toThrow(AssignmentInvariantViolationError);
+    ).rejects.toThrowError(
+      expect.objectContaining({ code: RepositoryErrorCode.FAILED_PRECONDITION }),
+    );
   });
 
   it('should allow assignments with different scopes', async () => {
