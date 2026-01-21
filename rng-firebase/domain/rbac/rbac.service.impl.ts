@@ -2,7 +2,7 @@
 import type { AssignmentRepository } from '../../repositories/assignment.repository';
 import type { RoleRepository } from '../../repositories/role.repository';
 import { evaluateRBAC } from './rbac.engine';
-import { RBACForbiddenError, RBACMisconfigurationError } from './rbac.errors';
+import { RBACMisconfigurationError } from './rbac.errors';
 import type { RBACService } from './rbac.service';
 import type { RBACDecision, RBACInput } from './rbac.types';
 
@@ -25,8 +25,6 @@ export class RBACServiceImpl implements RBACService {
         input.scope,
       );
     }
-    const decision = evaluateRBAC(input, rolePermissions, assignment);
-    if (!decision.allowed) throw new RBACForbiddenError(decision.reason);
-    return decision;
+    return evaluateRBAC(input, rolePermissions, assignment);
   }
 }

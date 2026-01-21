@@ -7,13 +7,19 @@ import {
   AuthDisabledError,
   EmailNotVerifiedError,
   InvalidCredentialsError,
+  InviteRevokedError,
   OwnerAlreadyExistsError,
   OwnerBootstrapError,
+  SessionInvalidatedError,
+  SignupNotAllowedError,
+  UserNotFoundError,
 } from './auth.errors';
+import type { AuthService } from './auth.service';
+import type { AuthContextState, Invite } from './auth.types';
 import { ExecutionContextService } from './execution-context.service';
 import { InviteService } from './invite.service';
 
-export class AuthServiceImpl {
+export class AuthServiceImpl implements AuthService {
   constructor(
     private readonly userRepo: UserRepository,
     private readonly assignmentRepo: AssignmentRepository,
@@ -23,25 +29,7 @@ export class AuthServiceImpl {
     private readonly inviteService: InviteService,
   ) {}
 
-  /**
-   * Sign out: invalidate session and ExecutionContext epoch, emit audit event.
-   */
-  async signOut(email: string): Promise<void> {
-    await this.authAdapter.signOut();
-    // Invalidate all contexts (epoch)
-    ExecutionContextService.invalidateAll();
-    await this.auditRepo.record({
-      type: 'sign_out',
-      email,
-      timestamp: Date.now(),
-    });
-  }
-
-  /**
-   * Sign in: block disabled users, require email verification, map invalid credentials, restore session via adapter.
-   * Emits audit events for success/failure.
-   */
-  async signIn(email: string, password: string): Promise<void> {
+  async signIn(email: string, password: string): Promise<AuthContextState> {
     const result = await this.authAdapter.signIn(email, password);
     if (!result.ok) {
       await this.auditRepo.record({
@@ -52,7 +40,6 @@ export class AuthServiceImpl {
       });
       throw new InvalidCredentialsError();
     }
-    // Get user from repo
     const user = await this.userRepo.getByEmail(email);
     if (!user) {
       await this.auditRepo.record({
@@ -61,7 +48,7 @@ export class AuthServiceImpl {
         reason: 'User not found',
         timestamp: Date.now(),
       });
-      throw new InvalidCredentialsError('User not found');
+      throw new UserNotFoundError('User not found');
     }
     if (user.lifecycle === 'disabled') {
       await this.auditRepo.record({
@@ -86,71 +73,103 @@ export class AuthServiceImpl {
       email,
       timestamp: Date.now(),
     });
-    // Session restore is handled by adapter; nothing to return here
+    ExecutionContextService.invalidateAll();
+    return {
+      status: 'authenticated',
+      user,
+      now: Date.now(),
+    };
   }
 
-  /**
-   * Invited signup: requires valid invite, single-use, email match, marks invite accepted, user created with source='invite'.
-   * Emits audit event on success/failure.
-   */
-  async signupWithInvite(email: string, password: string, displayName: string): Promise<void> {
-    await this.inviteService.acceptInviteAndCreateUser(email, password, displayName);
-    await this.auditRepo.record({
-      type: 'invite_signup_success',
-      email,
-      timestamp: Date.now(),
-    });
+  async signOut(): Promise<void> {
+    const result = await this.authAdapter.signOut();
+    if (!result.ok) {
+      throw new SessionInvalidatedError(result.error?.message || 'Sign out failed');
+    }
+    ExecutionContextService.invalidateAll();
+    // No email context available, so no audit event for sign out
   }
 
-  /**
-   * Owner bootstrap: only allowed if no users exist, email matches OWNER_EMAIL, atomic, second attempt fails.
-   * Emits audit event on success/failure.
-   */
-  async bootstrapOwner(email: string, password: string, displayName: string): Promise<void> {
+  async createOwner(email: string, password: string): Promise<AuthContextState> {
     const userCount = await this.userRepo.count();
     if (userCount > 0) {
-      await this.auditRepo.record({
-        type: 'owner_bootstrap_failed',
-        email,
-        reason: 'Owner already exists',
-        timestamp: Date.now(),
-      });
       throw new OwnerAlreadyExistsError();
     }
     const ownerEmail = process.env.OWNER_EMAIL;
     if (!ownerEmail || email.toLowerCase() !== ownerEmail.toLowerCase()) {
-      await this.auditRepo.record({
-        type: 'owner_bootstrap_failed',
-        email,
-        reason: 'Email does not match OWNER_EMAIL',
-        timestamp: Date.now(),
-      });
       throw new OwnerBootstrapError('Email does not match OWNER_EMAIL');
     }
-    // Try to create owner atomically
     try {
       await this.userRepo.createOwnerAtomically({
         email,
-        displayName,
+        displayName: email,
         role: 'owner',
         isEmailVerified: false,
         lifecycle: 'active',
         source: 'bootstrap',
       });
-      await this.auditRepo.record({
-        type: 'owner_bootstrap_success',
-        email,
-        timestamp: Date.now(),
-      });
+      const user = await this.userRepo.getByEmail(email);
+      if (!user) throw new OwnerBootstrapError('Owner creation failed');
+      ExecutionContextService.invalidateAll();
+      return {
+        status: 'owner_bootstrap_allowed',
+        user,
+        now: Date.now(),
+      };
     } catch (err: any) {
-      await this.auditRepo.record({
-        type: 'owner_bootstrap_failed',
-        email,
-        reason: err?.message || 'Unknown',
-        timestamp: Date.now(),
-      });
       if (err instanceof OwnerAlreadyExistsError) throw err;
       throw new OwnerBootstrapError(err?.message || 'Owner bootstrap failed');
     }
+  }
+
+  async createUserWithInvite(invite: Invite, password: string): Promise<AuthContextState> {
+    // Validate invite
+    if (invite.status === 'revoked') throw new InviteRevokedError();
+    if (invite.role !== 'manager' && invite.role !== 'employee') {
+      throw new SignupNotAllowedError('Only manager or employee roles can be invited');
+    }
+    // Atomicity cannot be guaranteed; throw
+    throw new SignupNotAllowedError('Invite signup is forbidden: atomicity cannot be guaranteed');
+  }
+
+  async sendEmailVerification(): Promise<void> {
+    const result = await this.authAdapter.sendEmailVerification();
+    if (!result.ok)
+      throw new EmailNotVerifiedError(result.error?.message || 'Email verification failed');
+  }
+
+  async getCurrentState(): Promise<AuthContextState> {
+    const result = await this.authAdapter.getCurrentUser();
+    if (!result.ok) throw new SessionInvalidatedError(result.error?.message || 'Session invalid');
+    const user = result.value;
+    if (!user) {
+      return {
+        status: 'unauthenticated',
+        user: null,
+        now: Date.now(),
+      };
+    }
+    // Map AuthUser to User (requires repo lookup)
+    const domainUser = await this.userRepo.getByEmail(user.email);
+    if (!domainUser) throw new UserNotFoundError('User not found');
+    if (domainUser.lifecycle === 'disabled') {
+      return {
+        status: 'disabled',
+        user: domainUser,
+        now: Date.now(),
+      };
+    }
+    if (!domainUser.isEmailVerified) {
+      return {
+        status: 'email_unverified',
+        user: domainUser,
+        now: Date.now(),
+      };
+    }
+    return {
+      status: 'authenticated',
+      user: domainUser,
+      now: Date.now(),
+    };
   }
 }

@@ -44,7 +44,7 @@ describe('AuthServiceImpl', () => {
 
   it('fails owner bootstrap if user exists', async () => {
     userRepo.count.mockResolvedValue(1);
-    await expect(service.bootstrapOwner('owner@example.com', 'pw', 'Owner')).rejects.toThrow(
+    await expect(service.createOwner('owner@example.com', 'pw')).rejects.toThrow(
       OwnerAlreadyExistsError,
     );
   });
@@ -52,14 +52,20 @@ describe('AuthServiceImpl', () => {
   it('fails owner bootstrap if email does not match', async () => {
     userRepo.count.mockResolvedValue(0);
     process.env.OWNER_EMAIL = 'owner@example.com';
-    await expect(service.bootstrapOwner('wrong@example.com', 'pw', 'Owner')).rejects.toThrow(
+    await expect(service.createOwner('wrong@example.com', 'pw')).rejects.toThrow(
       OwnerBootstrapError,
     );
   });
 
   it('fails invited signup if invite not found', async () => {
     inviteRepo.findByEmail.mockResolvedValue(null);
-    await expect(service.signupWithInvite('invitee@example.com', 'pw', 'Invitee')).rejects.toThrow(
+    const fakeInvite = {
+      id: 'i1',
+      email: 'invitee@example.com',
+      role: 'manager',
+      status: 'pending' as const,
+    };
+    await expect(service.createUserWithInvite(fakeInvite, 'pw')).rejects.toThrow(
       SignupNotAllowedError,
     );
   });

@@ -1,5 +1,5 @@
 // Pure RBAC engine for kernel (finalized)
-import { FEATURE_REGISTRY } from '../feature/feature.registry';
+import { getFeatureRegistry } from '../feature/feature.registry';
 import { RBAC_ACTION_RULES } from './rbac.actions';
 import { RBAC_INVARIANTS } from './rbac.invariants';
 import { RBACDenialReason } from './rbac.reasons';
@@ -34,7 +34,13 @@ export function evaluateRBAC(
   }
 
   // 2. Feature/action registry enforcement
-  const featureDef = FEATURE_REGISTRY.find((f) => f.feature === input.feature);
+  let featureDef: { feature: string; actions: readonly string[] } | undefined;
+  try {
+    featureDef = getFeatureRegistry().find((f) => f.feature === input.feature);
+  } catch (err: any) {
+    // Registry not initialized
+    return { allowed: false, reason: RBACDenialReason.ROLE_MISCONFIGURED };
+  }
   if (!featureDef) {
     return { allowed: false, reason: RBACDenialReason.FEATURE_UNKNOWN };
   }

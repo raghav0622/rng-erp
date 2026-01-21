@@ -49,6 +49,5 @@ export interface AuthService {
    */
   getCurrentState(): Promise<AuthContextState>;
 }
-}
 
 // Implementation is not provided in Phase 1. This contract ensures all orchestration and invariants are enforced centrally.

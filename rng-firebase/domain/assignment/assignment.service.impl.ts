@@ -1,9 +1,9 @@
+import { getFeatureRegistry } from '../feature/feature.registry';
 // AssignmentService implementation enforcing all invariants for AssignmentScope
 
 import type { AssignmentRepository } from '../../repositories/assignment.repository';
 import type { RoleRepository } from '../../repositories/role.repository';
 import type { UserRepository } from '../../repositories/user.repository';
-import { FEATURE_REGISTRY } from '../feature/feature.registry';
 import { RBAC_INVARIANTS } from '../rbac/rbac.invariants';
 import {
   assertNoDuplicateAssignment,
@@ -41,12 +41,16 @@ export class AssignmentServiceImpl implements AssignmentService {
       throw new AssignmentInvariantViolationError('Owner-only actions cannot be assigned');
     }
 
-    // 5. Feature existence
-    const featureDef = FEATURE_REGISTRY.find((f) => f.feature === input.feature);
-    if (!featureDef)
-      throw new AssignmentInvariantViolationError('Feature does not exist in registry');
-
-    // 6. Action existence
+    // Feature/action existence is enforced here against the initialized registry.
+    let featureDef: { feature: string; actions: readonly string[] } | undefined;
+    try {
+      featureDef = getFeatureRegistry().find((f) => f.feature === input.feature);
+    } catch (err: any) {
+      throw new AssignmentInvariantViolationError('Feature registry not initialized');
+    }
+    if (!featureDef) {
+      throw new AssignmentInvariantViolationError('Feature does not exist');
+    }
     if (!featureDef.actions.includes(input.action)) {
       throw new AssignmentInvariantViolationError('Action does not exist for feature');
     }

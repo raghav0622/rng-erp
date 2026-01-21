@@ -1,3 +1,11 @@
+// KernelAtomicityViolationError for atomicity enforcement
+class KernelAtomicityViolationError extends Error {
+  readonly code = 'KERNEL_ATOMICITY_VIOLATION';
+  constructor(message: string) {
+    super(message);
+    Object.setPrototypeOf(this, KernelAtomicityViolationError.prototype);
+  }
+}
 // invite.service.ts
 // InviteService: Enforces all invite invariants and atomicity for the kernel
 import type { InviteRepository } from '../../repositories/invite.repository';
@@ -34,19 +42,31 @@ export class InviteService {
     password: string,
     displayName: string,
   ): Promise<void> {
+    // Find invite by email
     const invite = await this.inviteRepo.findByEmail(email);
-    if (!invite) throw new SignupNotAllowedError('No invite found');
-    if (invite.status !== 'pending') throw new InviteRevokedError();
-    // No expiresAt property on Invite; expiry logic not enforced here
-    // Mark accepted and create user atomically (pseudo-transaction)
-    // This must be implemented with a real transaction in production
-    await this.inviteRepo.markAccepted(invite.id);
+    if (!invite) throw new SignupNotAllowedError('Invite not found');
+    if (invite.status === 'revoked') throw new InviteRevokedError();
+    // If we ever support expiry, check here (status/type or timestamp)
+    // if (invite.status === 'expired') throw new InviteExpiredError();
+    if (invite.status !== 'pending') throw new SignupNotAllowedError('Invite already used');
+
+    // Atomic mutation: mark invite accepted and create user
+    await this.inviteRepo.runAtomic(invite.id, (current) => {
+      if (!current) throw new SignupNotAllowedError('Invite not found');
+      if (current.status === 'revoked') throw new InviteRevokedError();
+      // if (current.status === 'expired') throw new InviteExpiredError();
+      if (current.status !== 'pending') throw new SignupNotAllowedError('Invite already used');
+      // Mark invite as accepted
+      return { status: 'accepted' };
+    });
+
+    // Create user with correct lifecycle and source
     await this.userRepo.create({
       email,
       displayName,
-      role: invite.role as any,
+      role: invite.role,
       isEmailVerified: false,
-      lifecycle: 'active',
+      lifecycle: 'invited',
       source: 'invite',
     });
   }
