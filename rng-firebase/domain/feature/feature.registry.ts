@@ -6,4 +6,5 @@ export interface FeatureDefinition {
   actions: readonly string[];
 }
 
-export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [];
+// FEATURE_REGISTRY is frozen at kernel bootstrap. No runtime mutation allowed.
+export const FEATURE_REGISTRY: readonly FeatureDefinition[] = Object.freeze([]);
