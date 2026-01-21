@@ -2,16 +2,39 @@
  * Asserts that a user is allowed to sign in.
  * Throws with code 'USER_DISABLED' or 'EMAIL_NOT_VERIFIED' as appropriate.
  */
+import type { AuditService } from '../audit/audit.service';
+import { AuditEventType } from '../audit/audit.types';
 import { AuthDisabledError, EmailNotVerifiedError } from '../auth/auth.errors';
 
-export function assertUserSignInAllowed(user: {
-  lifecycle: UserLifecycle;
-  isEmailVerified: boolean;
-}): void {
+export function assertUserSignInAllowed(
+  user: { lifecycle: UserLifecycle; isEmailVerified: boolean },
+  auditService?: AuditService,
+  actor?: string,
+): void {
   if (user.lifecycle === 'disabled') {
+    if (auditService && actor) {
+      auditService.record({
+        type: AuditEventType.USER_DISABLED,
+        actor,
+        target: actor,
+        reason: 'User is disabled',
+        timestamp: Date.now(),
+        details: { user },
+      });
+    }
     throw new AuthDisabledError();
   }
   if (!user.isEmailVerified) {
+    if (auditService && actor) {
+      auditService.record({
+        type: AuditEventType.USER_DISABLED,
+        actor,
+        target: actor,
+        reason: 'Email not verified',
+        timestamp: Date.now(),
+        details: { user },
+      });
+    }
     throw new EmailNotVerifiedError();
   }
 }

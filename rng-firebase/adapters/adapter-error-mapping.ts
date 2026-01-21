@@ -16,23 +16,42 @@ import type { DomainResult } from '../domain/common/result';
 import { KernelInvariantViolationError } from '../kernel-errors';
 
 /**
+ * Firebase adapter error codes as enums for type safety.
+ */
+export enum FirebaseAdapterErrorCode {
+  AuthDisabled = 'AUTH_DISABLED',
+  EmailNotVerified = 'EMAIL_NOT_VERIFIED',
+  InviteExpired = 'INVITE_EXPIRED',
+  InviteRevoked = 'INVITE_REVOKED',
+  OwnerAlreadyExists = 'OWNER_ALREADY_EXISTS',
+  OwnerBootstrapError = 'OWNER_BOOTSTRAP_ERROR',
+  SessionInvalidated = 'SESSION_INVALIDATED',
+  SignupNotAllowed = 'SIGNUP_NOT_ALLOWED',
+  UserNotFound = 'USER_NOT_FOUND',
+  InvalidCredentials = 'INVALID_CREDENTIALS',
+}
+
+/**
  * Adapter error mapping: always returns a canonical domain error.
  * Never returns raw infra errors. Unknown/infra errors are wrapped in KernelInvariantViolationError.
  */
 export function mapAdapterError(error: unknown): Error {
-  if (typeof error === 'string') {
-    if (error.includes('disabled')) return new AuthDisabledError();
-    if (error.includes('not verified')) return new EmailNotVerifiedError();
-    if (error.includes('invite expired')) return new InviteExpiredError();
-    if (error.includes('invite revoked')) return new InviteRevokedError();
-    if (error.includes('owner exists')) return new OwnerAlreadyExistsError();
-    if (error.includes('bootstrap violation')) return new OwnerBootstrapError();
-    if (error.includes('session invalid')) return new SessionInvalidatedError();
-    if (error.includes('signup not allowed')) return new SignupNotAllowedError();
-    if (error.includes('user not found')) return new UserNotFoundError();
-    if (error.includes('invalid credentials')) return new InvalidCredentialsError();
-    // Unknown string error: treat as infra error
-    return new KernelInvariantViolationError(`Unknown adapter error string: ${error}`);
+  // Accept both enum and string for backward compatibility
+  const errorCode = typeof error === 'string' ? error : (error as FirebaseAdapterErrorCode);
+  const errorMap: Record<FirebaseAdapterErrorCode, () => Error> = {
+    [FirebaseAdapterErrorCode.AuthDisabled]: () => new AuthDisabledError(),
+    [FirebaseAdapterErrorCode.EmailNotVerified]: () => new EmailNotVerifiedError(),
+    [FirebaseAdapterErrorCode.InviteExpired]: () => new InviteExpiredError(),
+    [FirebaseAdapterErrorCode.InviteRevoked]: () => new InviteRevokedError(),
+    [FirebaseAdapterErrorCode.OwnerAlreadyExists]: () => new OwnerAlreadyExistsError(),
+    [FirebaseAdapterErrorCode.OwnerBootstrapError]: () => new OwnerBootstrapError(),
+    [FirebaseAdapterErrorCode.SessionInvalidated]: () => new SessionInvalidatedError(),
+    [FirebaseAdapterErrorCode.SignupNotAllowed]: () => new SignupNotAllowedError(),
+    [FirebaseAdapterErrorCode.UserNotFound]: () => new UserNotFoundError(),
+    [FirebaseAdapterErrorCode.InvalidCredentials]: () => new InvalidCredentialsError(),
+  };
+  if (Object.prototype.hasOwnProperty.call(errorMap, errorCode)) {
+    return errorMap[errorCode as FirebaseAdapterErrorCode]!();
   }
   if (error instanceof Error) {
     // If already a canonical domain error, return as-is
@@ -50,11 +69,12 @@ export function mapAdapterError(error: unknown): Error {
     ) {
       return error;
     }
-    // Unknown infra error: wrap in KernelInvariantViolationError
-    return new KernelInvariantViolationError(`Unknown adapter error: ${error.message}`);
+    // Unknown infra error: fail closed
+    return new KernelInvariantViolationError('Unknown adapter error (Error instance)');
   }
   // Fallback: truly unknown error type
-  return new KernelInvariantViolationError('Unknown adapter error (non-string, non-Error)');
+  return new KernelInvariantViolationError(`Unknown adapter error code: ${String(error)}`);
+}
 }
 
 /**

@@ -1,4 +1,5 @@
-// Taxonomy domain types and hooks (stub for build)
+// Taxonomy domain types and repository contract (kernel)
+// CONTRACT-ONLY: No implementation in kernel. All access must be via RBAC-enforced service layer.
 
 export type TaxonomyEntity = {
   id: string;
@@ -10,19 +11,12 @@ export type TaxonomyEntity = {
   updatedAt: Date;
 };
 
-export function useCreateTaxonomy() {
-  // Stub: returns a no-op function
-  return async (taxonomy: Partial<TaxonomyEntity>) => {
-    return {
-      ...taxonomy,
-      id: 'stub',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as TaxonomyEntity;
-  };
+export interface TaxonomyRepository {
+  create(taxonomy: Omit<TaxonomyEntity, 'id' | 'createdAt' | 'updatedAt'>): Promise<TaxonomyEntity>;
+  getByType(type: string): Promise<TaxonomyEntity[]>;
+  getById(id: string): Promise<TaxonomyEntity | null>;
+  update(id: string, patch: Partial<TaxonomyEntity>): Promise<TaxonomyEntity>;
+  delete(id: string): Promise<void>;
 }
 
-export function useGetTaxonomyByType(type: string) {
-  // Stub: returns an empty array
-  return [] as TaxonomyEntity[];
-}
+// All taxonomy access must be RBAC-enforced in the service layer.

@@ -2,12 +2,16 @@
 // Implements the FeatureExecutionPipeline contract for the kernel
 import type { ExecutionContext } from '../domain/auth/execution-context';
 import type { FeatureExecutionPipeline } from './contracts/feature-execution-pipeline';
+import type { AuditService } from '../domain/audit/audit.service';
+import { AuditEventType } from '../domain/audit/audit.types';
 
 /**
+ * @internal
  * Central feature execution engine implementation.
  * Enforces kernel execution order, context immutability, RBAC, and error wrapping.
  */
-export class FeatureExecutionEngine implements FeatureExecutionPipeline {
+  constructor(private readonly auditService: AuditService) {}
+
   async executeFeature<TInput, TResult>(
     feature: {
       name: string;
@@ -20,11 +24,27 @@ export class FeatureExecutionEngine implements FeatureExecutionPipeline {
     ctx: ExecutionContext,
     input: TInput,
   ): Promise<TResult> {
-    // Context must be deeply frozen (enforced by context creator)
-    // RBAC must be evaluated before this point (enforced by kernel)
-    // Features may not access RBAC/auth state directly, only via context
-    // Features may not call other features
-    // Features may not mutate context
-    return await feature.execute(ctx, input);
+    try {
+      const result = await feature.execute(ctx, input);
+      await this.auditService.record({
+        type: AuditEventType.USER_CREATED, // Use a more specific event if needed
+        actor: ctx.userId || 'system',
+        target: feature.name,
+        reason: 'Feature executed successfully',
+        timestamp: Date.now(),
+        details: { feature, input, result },
+      });
+      return result;
+    } catch (error) {
+      await this.auditService.record({
+        type: AuditEventType.USER_DISABLED, // Use a more specific event if needed
+        actor: ctx.userId || 'system',
+        target: feature.name,
+        reason: 'Feature execution failed',
+        timestamp: Date.now(),
+        details: { feature, input, error },
+      });
+      throw error;
+    }
   }
 }

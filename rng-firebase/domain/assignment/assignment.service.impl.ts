@@ -4,6 +4,8 @@ import { getFeatureRegistry } from '../feature/feature.registry';
 import type { AssignmentRepository } from '../../repositories/assignment.repository';
 import type { RoleRepository } from '../../repositories/role.repository';
 import type { UserRepository } from '../../repositories/user.repository';
+import type { AuditService } from '../audit/audit.service';
+import { AuditEventType } from '../audit/audit.types';
 import { RBAC_INVARIANTS } from '../rbac/rbac.invariants';
 import { AssignmentInvariantViolationError } from './assignment.invariants';
 import type { AssignmentService } from './assignment.service';
@@ -16,6 +18,7 @@ export class AssignmentServiceImpl implements AssignmentService {
     private readonly repo: AssignmentRepository,
     private readonly userRepo: UserRepository,
     private readonly roleRepo: RoleRepository,
+    private readonly auditService: AuditService,
   ) {}
 
   async createAssignment(input: {
@@ -26,17 +29,54 @@ export class AssignmentServiceImpl implements AssignmentService {
   }): Promise<void> {
     // 1. User existence
     const user = await this.userRepo.getById(input.userId);
-    if (!user) throw new AssignmentInvariantViolationError('User does not exist');
+    if (!user) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'User does not exist',
+        timestamp: Date.now(),
+        details: { input },
+      });
+      throw new AssignmentInvariantViolationError('User does not exist');
+    }
 
     // 2. User role
-    if (!user.role) throw new AssignmentInvariantViolationError('User has no role');
+    if (!user.role) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'User has no role',
+        timestamp: Date.now(),
+        details: { input },
+      });
+      throw new AssignmentInvariantViolationError('User has no role');
+    }
 
     // 3. Clients forbidden
-    if (user.role === 'client')
+    if (user.role === 'client') {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'Clients cannot receive assignments',
+        timestamp: Date.now(),
+        details: { input },
+      });
       throw new AssignmentInvariantViolationError('Clients cannot receive assignments');
+    }
 
     // 4. Owner-only actions forbidden
     if (RBAC_INVARIANTS.OWNER_ONLY_ACTIONS.includes(input.action)) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'Owner-only actions cannot be assigned',
+        timestamp: Date.now(),
+        details: { input },
+      });
       throw new AssignmentInvariantViolationError('Owner-only actions cannot be assigned');
     }
 
@@ -45,18 +85,50 @@ export class AssignmentServiceImpl implements AssignmentService {
     try {
       featureDef = getFeatureRegistry().find((f) => f.feature === input.feature);
     } catch (err: any) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'Feature registry not initialized',
+        timestamp: Date.now(),
+        details: { input },
+      });
       throw new AssignmentInvariantViolationError('Feature registry not initialized');
     }
     if (!featureDef) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'Feature does not exist',
+        timestamp: Date.now(),
+        details: { input },
+      });
       throw new AssignmentInvariantViolationError('Feature does not exist');
     }
     if (!featureDef.actions.includes(input.action)) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'Action does not exist for feature',
+        timestamp: Date.now(),
+        details: { input },
+      });
       throw new AssignmentInvariantViolationError('Action does not exist for feature');
     }
 
     // 7. Role ceiling (assignment may NOT grant actions not allowed by rolePermissions)
     const rolePerm = await this.roleRepo.getByRoleAndFeature(user.role, input.feature);
     if (!rolePerm || !rolePerm.actions.includes(input.action)) {
+      await this.auditService.record({
+        type: AuditEventType.ASSIGNMENT_REVOKED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'Assignment would grant action not allowed by role',
+        timestamp: Date.now(),
+        details: { input },
+      });
       throw new AssignmentInvariantViolationError(
         'Assignment would grant action not allowed by role',
       );
@@ -99,7 +171,20 @@ export class AssignmentServiceImpl implements AssignmentService {
     }
 
     // 9. Duplicate prevention (repository-level uniqueness enforcement)
-    await this.repo.ensureAssignmentUnique(input.userId, input.feature, input.action, input.scope);
+    try {
+      await this.repo.ensureAssignmentUnique(
+        input.userId,
+        input.feature,
+        input.action,
+        input.scope,
+      );
+    } catch (err: any) {
+      // Only catch repository errors, rethrow as invariant violation
+      if (err?.name === 'RepositoryError') {
+        throw new AssignmentInvariantViolationError('Assignment uniqueness check failed');
+      }
+      throw err;
+    }
 
     // 10. Create assignment
     await this.repo.create({

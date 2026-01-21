@@ -1,8 +1,8 @@
 import type { FirebaseAuthAdapter } from '../../adapters/firebase-auth.adapter';
 import type { AssignmentRepository } from '../../repositories/assignment.repository';
-import type { AuditRepository } from '../../repositories/audit.repository';
 import type { InviteRepository } from '../../repositories/invite.repository';
 import type { UserRepository } from '../../repositories/user.repository';
+import type { AuditService } from '../audit/audit.service';
 import { assertUserSignInAllowed } from '../user/user.lifecycle';
 import {
   AuthDisabledError,
@@ -24,7 +24,7 @@ export class AuthServiceImpl implements AuthService {
   constructor(
     private readonly userRepo: UserRepository,
     private readonly assignmentRepo: AssignmentRepository,
-    private readonly auditRepo: AuditRepository,
+    private readonly auditService: AuditService,
     private readonly inviteRepo: InviteRepository,
     private readonly authAdapter: FirebaseAuthAdapter,
     private readonly inviteService: InviteService,
@@ -33,41 +33,45 @@ export class AuthServiceImpl implements AuthService {
   async signIn(email: string, password: string): Promise<AuthContextState> {
     const result = await this.authAdapter.signIn(email, password);
     if (!result.ok) {
-      await this.auditRepo.record({
-        type: 'sign_in_failed',
-        email,
+      await this.auditService.record({
+        type: AuditEventType.USER_SIGNIN,
+        actor: email,
         reason: result.error?.message || 'Invalid credentials',
         timestamp: Date.now(),
+        details: { ok: false },
       });
       throw new InvalidCredentialsError();
     }
     const user = await this.userRepo.getByEmail(email);
     if (!user) {
-      await this.auditRepo.record({
-        type: 'sign_in_failed',
-        email,
+      await this.auditService.record({
+        type: AuditEventType.USER_SIGNIN,
+        actor: email,
         reason: 'User not found',
         timestamp: Date.now(),
+        details: { ok: false },
       });
       throw new UserNotFoundError('User not found');
     }
     try {
       assertUserSignInAllowed(user);
     } catch (err: any) {
-      await this.auditRepo.record({
-        type: 'sign_in_failed',
-        email,
+      await this.auditService.record({
+        type: AuditEventType.USER_SIGNIN,
+        actor: email,
         reason: err?.message || 'User not allowed to sign in',
         timestamp: Date.now(),
+        details: { ok: false },
       });
       if (err.code === 'USER_DISABLED') throw new AuthDisabledError();
       if (err.code === 'EMAIL_NOT_VERIFIED') throw new EmailNotVerifiedError();
       throw err;
     }
-    await this.auditRepo.record({
-      type: 'sign_in_success',
-      email,
+    await this.auditService.record({
+      type: AuditEventType.USER_SIGNIN,
+      actor: email,
       timestamp: Date.now(),
+      details: { ok: true },
     });
     ExecutionContextService.invalidateAll();
     return {

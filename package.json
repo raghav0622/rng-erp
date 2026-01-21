@@ -10,7 +10,7 @@
     "test": "vitest run --project unit",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "review": "node scripts/get-review-file.mjs"
+    "review": "node scripts/get-review-file.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

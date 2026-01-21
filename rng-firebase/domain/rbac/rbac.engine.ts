@@ -46,16 +46,15 @@ export function evaluateRBAC(
     return { allowed: false, reason: RBACDenialReason.ROLE_FORBIDDEN };
   }
 
-  // 5. Employee: allow ONLY if assignment exists
+  // 5. Employee: allow ONLY if assignment exists and does not escalate beyond role ceiling
   if (input.role === 'employee') {
-    if (
-      assignment &&
-      assignment.action === input.action &&
-      assignment.feature === input.feature &&
-      rolePermissions &&
-      rolePermissions.actions.includes(input.action)
-    ) {
-      return { allowed: true, reason: RBACAllowReason.ASSIGNMENT_ALLOWED };
+    if (assignment && assignment.action === input.action && assignment.feature === input.feature) {
+      if (rolePermissions && rolePermissions.actions.includes(input.action)) {
+        return { allowed: true, reason: RBACAllowReason.ASSIGNMENT_ALLOWED };
+      } else {
+        // Assignment would escalate beyond role ceiling
+        return { allowed: false, reason: RBACDenialReason.ASSIGNMENT_ESCALATION };
+      }
     }
     return { allowed: false, reason: RBACDenialReason.ASSIGNMENT_MISSING };
   }

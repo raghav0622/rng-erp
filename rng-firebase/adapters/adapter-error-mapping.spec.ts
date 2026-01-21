@@ -17,16 +17,16 @@ import { mapAdapterError, toDomainResult } from './adapter-error-mapping';
 describe('adapter-error-mapping', () => {
   describe('mapAdapterError', () => {
     it('maps known string errors to canonical domain errors', () => {
-      expect(mapAdapterError('disabled')).toBeInstanceOf(AuthDisabledError);
-      expect(mapAdapterError('not verified')).toBeInstanceOf(EmailNotVerifiedError);
-      expect(mapAdapterError('invite expired')).toBeInstanceOf(InviteExpiredError);
-      expect(mapAdapterError('invite revoked')).toBeInstanceOf(InviteRevokedError);
-      expect(mapAdapterError('owner exists')).toBeInstanceOf(OwnerAlreadyExistsError);
-      expect(mapAdapterError('bootstrap violation')).toBeInstanceOf(OwnerBootstrapError);
-      expect(mapAdapterError('session invalid')).toBeInstanceOf(SessionInvalidatedError);
-      expect(mapAdapterError('signup not allowed')).toBeInstanceOf(SignupNotAllowedError);
-      expect(mapAdapterError('user not found')).toBeInstanceOf(UserNotFoundError);
-      expect(mapAdapterError('invalid credentials')).toBeInstanceOf(InvalidCredentialsError);
+      expect(mapAdapterError('AUTH_DISABLED')).toBeInstanceOf(AuthDisabledError);
+      expect(mapAdapterError('EMAIL_NOT_VERIFIED')).toBeInstanceOf(EmailNotVerifiedError);
+      expect(mapAdapterError('INVITE_EXPIRED')).toBeInstanceOf(InviteExpiredError);
+      expect(mapAdapterError('INVITE_REVOKED')).toBeInstanceOf(InviteRevokedError);
+      expect(mapAdapterError('OWNER_ALREADY_EXISTS')).toBeInstanceOf(OwnerAlreadyExistsError);
+      expect(mapAdapterError('OWNER_BOOTSTRAP_ERROR')).toBeInstanceOf(OwnerBootstrapError);
+      expect(mapAdapterError('SESSION_INVALIDATED')).toBeInstanceOf(SessionInvalidatedError);
+      expect(mapAdapterError('SIGNUP_NOT_ALLOWED')).toBeInstanceOf(SignupNotAllowedError);
+      expect(mapAdapterError('USER_NOT_FOUND')).toBeInstanceOf(UserNotFoundError);
+      expect(mapAdapterError('INVALID_CREDENTIALS')).toBeInstanceOf(InvalidCredentialsError);
     });
 
     it('wraps unknown string errors in KernelInvariantViolationError', () => {
@@ -44,7 +44,7 @@ describe('adapter-error-mapping', () => {
       const e = new Error('infra fail');
       const mapped = mapAdapterError(e);
       expect(mapped).toBeInstanceOf(KernelInvariantViolationError);
-      expect(mapped.message).toContain('infra fail');
+      expect(mapped.message).toContain('Unknown adapter error (Error instance)');
     });
 
     it('wraps non-string, non-Error values in KernelInvariantViolationError', () => {
@@ -63,7 +63,7 @@ describe('adapter-error-mapping', () => {
     });
 
     it('returns ok:false and maps error for known string error', async () => {
-      const result = await toDomainResult(() => Promise.reject('disabled'));
+      const result = await toDomainResult(() => Promise.reject('AUTH_DISABLED'));
       expect(result.ok).toBe(false);
       expect(result.error).toBeInstanceOf(AuthDisabledError);
     });

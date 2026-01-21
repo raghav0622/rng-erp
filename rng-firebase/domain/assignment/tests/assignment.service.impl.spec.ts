@@ -221,7 +221,8 @@ describe('AssignmentServiceImpl', () => {
       updatedAt: new Date(),
     };
     const roleRepo = mockRoleRepo([rolePerm as any]);
-    const service = new AssignmentServiceImpl(repo, userRepo, roleRepo);
+    const auditService = { record: async () => {} };
+    const service = new AssignmentServiceImpl(repo, userRepo, roleRepo, auditService);
     await service.createAssignment({
       userId: 'u1',
       feature: 'f',
@@ -270,9 +271,7 @@ describe('AssignmentServiceImpl', () => {
         action: 'a',
         scope: { type: 'feature' },
       }),
-    ).rejects.toThrowError(
-      expect.objectContaining({ code: RepositoryErrorCode.FAILED_PRECONDITION }),
-    );
+    ).rejects.toThrowError(expect.objectContaining({ code: 'ASSIGNMENT_INVARIANT_VIOLATION' }));
   });
 
   it('should allow assignments with different scopes', async () => {

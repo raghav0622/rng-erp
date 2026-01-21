@@ -93,6 +93,17 @@ All errors originating from adapters (e.g., Firebase, external APIs) MUST be map
 - May NOT create or mutate users, roles, or assignments outside kernel
 - May NOT bypass or short-circuit any kernel contract
 
+## Canonical Fail-Closed Guarantees
+
+- Missing feature: access is denied, kernel emits explicit denial reason
+- Missing role config: kernel throws hard error, boot fails if not present
+- Missing assignment: access is denied, kernel emits explicit denial reason
+- Missing scope: kernel throws invariant violation error
+- Missing audit sink: kernel refuses to boot, explicit error
+- Missing registry initialization: kernel refuses to boot, explicit error
+
+All undefined or ambiguous behavior is forbidden. Kernel must fail closed, never open or silent.
+
 ## Enforcement
 
 - Any violation of these rules is a kernel-breaking error

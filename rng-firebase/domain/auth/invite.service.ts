@@ -5,6 +5,14 @@ export class KernelAtomicityViolationError extends KernelErrorBase {
     super(message, 'KERNEL_ATOMICITY_VIOLATION');
     Object.setPrototypeOf(this, KernelAtomicityViolationError.prototype);
   }
+  /**
+   * Atomic signup is intentionally not implemented in kernel. This stub is sealed and will always fail.
+   */
+  async atomicSignup(): Promise<never> {
+    throw new KernelAtomicityViolationError(
+      'Atomic signup is not implemented in kernel (intentional stub)',
+    );
+  }
 }
 // invite.service.ts
 // InviteService: Enforces all invite invariants and atomicity for the kernel
@@ -34,28 +42,20 @@ export class InviteService {
     return this.inviteRepo.create(invite);
   }
 
-  /**
-   * Accept invite + user creation must be atomic. Enforces expiry, single-use, revoked.
-   */
-  /**
-   * Atomicity stub: This implementation does NOT guarantee atomicity between invite acceptance and user creation.
-   * Always throws KernelAtomicityViolationError. Do NOT silently degrade.
-   */
-  async acceptInviteAndCreateUser(
-    email: string,
-    password: string,
-    displayName: string,
-  ): Promise<void> {
-    throw new KernelAtomicityViolationError(
-      'Invite acceptance and user creation is not atomic. This is an intentional stub.',
-    );
-  }
-
   async revokeInvite(inviteId: string): Promise<void> {
     await this.inviteRepo.revoke(inviteId);
   }
 
   async expireInvite(inviteId: string): Promise<void> {
     await this.inviteRepo.expire(inviteId);
+  }
+
+  /**
+   * Atomic invite acceptance is permanently forbidden in kernel. This method always fails closed.
+   */
+  async acceptInviteAndCreateUser(): Promise<never> {
+    throw new KernelAtomicityViolationError(
+      'Atomic invite signup is forbidden: kernel does not support atomicity for invite acceptance.',
+    );
   }
 }
