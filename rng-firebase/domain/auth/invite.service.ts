@@ -50,12 +50,6 @@ export class InviteService {
     await this.inviteRepo.expire(inviteId);
   }
 
-  /**
-   * Atomic invite acceptance is permanently forbidden in kernel. This method always fails closed.
-   */
-  async acceptInviteAndCreateUser(): Promise<never> {
-    throw new KernelAtomicityViolationError(
-      'Atomic invite signup is forbidden: kernel does not support atomicity for invite acceptance.',
-    );
-  }
+  // @sealed @never
+  // acceptInviteAndCreateUser is intentionally omitted from public API.
 }

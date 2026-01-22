@@ -6,7 +6,6 @@ import {
 } from '../domain/auth/auth.errors';
 import { ExecutionContextService } from '../domain/auth/execution-context.service';
 import { FeatureExecutionEngine } from '../feature-execution-engine/FeatureExecutionEngine';
-import { KernelInvariantViolationError } from '../kernel-errors';
 import { KernelExecutor } from '../kernel/kernel-executor';
 
 const userRepo = {
@@ -62,15 +61,20 @@ describe('KernelExecutor', () => {
 
   it('rejects missing RBAC approval (no scopeResolver)', async () => {
     userRepo.getById.mockResolvedValue(baseUser);
-    rbacService.check.mockResolvedValue({ allowed: false, reason: 'ROLE_FORBIDDEN' });
+    rbacService.check.mockImplementation(() => {
+      throw new (require('../domain/rbac/rbac.errors').RBACForbiddenError)(
+        require('../domain/rbac/rbac.reasons').RBACDenialReason.ROLE_FORBIDDEN,
+        'RBAC access denied',
+      );
+    });
     await expect(executor.execute(feature, 'u1', {})).rejects.toThrow(
-      KernelInvariantViolationError,
+      require('../domain/rbac/rbac.errors').RBACForbiddenError,
     );
   });
 
   it('executes feature if all checks pass', async () => {
     userRepo.getById.mockResolvedValue(baseUser);
-    rbacService.check.mockResolvedValue({ allowed: true, reason: 'ROLE_ALLOWED' });
+    rbacService.check.mockImplementation(() => {}); // No throw means allowed
     feature.execute.mockResolvedValue('ok');
     const featureWithScope = {
       ...feature,

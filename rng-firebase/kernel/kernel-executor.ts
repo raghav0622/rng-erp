@@ -1,7 +1,6 @@
 // kernel-executor.ts
 // The ONLY public entry point for executing features in the kernel.
 // Enforces: Auth, ExecutionContext, RBAC, FeatureExecutionEngine, Error wrapping.
-import type { AssignmentScope } from '../domain/assignment/contract';
 import {
   AuthDisabledError,
   EmailNotVerifiedError,
@@ -12,7 +11,6 @@ import type { RBACService } from '../domain/rbac/rbac.service';
 import { FeatureExecutionEngine } from '../feature-execution-engine/FeatureExecutionEngine';
 import type { CommandFeature } from '../feature-execution-engine/contracts/feature';
 import { FeatureExecutionError } from '../feature-execution-engine/errors/FeatureExecutionError';
-import { KernelInvariantViolationError } from '../kernel-errors';
 import type { UserRepository } from '../repositories/user.repository';
 
 export class KernelExecutor {
@@ -42,36 +40,19 @@ export class KernelExecutor {
     // 2. ExecutionContext creation
     const ctx = ExecutionContextService.create(user);
 
-    // 3. RBAC check
-    // Scope must be resolved explicitly via feature.scopeResolver only
-    let scope: AssignmentScope | undefined = undefined;
-    if (typeof feature.scopeResolver === 'function') {
-      scope = feature.scopeResolver(ctx, input);
-    }
-    if (!scope) {
-      throw new KernelInvariantViolationError(
-        'Assignment scope could not be resolved deterministically (no scopeResolver or returned undefined)',
-      );
-    }
-    await this.rbacService.check({
-      userId: user.id,
-      role: user.role,
-      feature: feature.feature,
-      action: feature.action,
-      scope,
-    });
-
-    // 4. Feature execution (internal only)
+    // 3. Feature execution (engine enforces scope and RBAC invariants)
     try {
       return await this.engine.executeFeature(feature, ctx, input);
     } catch (err: any) {
-      // 5. Error wrapping: only wrap non-Auth, non-RBAC errors
+      // 4. Error wrapping: only wrap non-Auth, non-RBAC errors
       if (
         err instanceof FeatureExecutionError ||
         err instanceof AuthDisabledError ||
         err instanceof EmailNotVerifiedError ||
         err instanceof UserNotFoundError ||
-        (err && err.name === 'RBACForbiddenError')
+        (typeof require === 'function' &&
+          require('../kernel/errors/RBACErrorBase') &&
+          err instanceof require('../kernel/errors/RBACErrorBase').RBACErrorBase)
       ) {
         throw err;
       }

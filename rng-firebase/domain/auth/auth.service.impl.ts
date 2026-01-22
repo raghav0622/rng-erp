@@ -5,7 +5,6 @@ import type { UserRepository } from '../../repositories/user.repository';
 import type { AuditService } from '../audit/audit.service';
 import { assertUserSignInAllowed } from '../user/user.lifecycle';
 import {
-  AuthDisabledError,
   EmailNotVerifiedError,
   InvalidCredentialsError,
   InviteRevokedError,
@@ -53,8 +52,9 @@ export class AuthServiceImpl implements AuthService {
       });
       throw new UserNotFoundError('User not found');
     }
+    // Delegate lifecycle checks to assertUserSignInAllowed
     try {
-      assertUserSignInAllowed(user);
+      assertUserSignInAllowed(user, this.auditService, email);
     } catch (err: any) {
       await this.auditService.record({
         type: AuditEventType.USER_SIGNIN,
@@ -63,8 +63,6 @@ export class AuthServiceImpl implements AuthService {
         timestamp: Date.now(),
         details: { ok: false },
       });
-      if (err.code === 'USER_DISABLED') throw new AuthDisabledError();
-      if (err.code === 'EMAIL_NOT_VERIFIED') throw new EmailNotVerifiedError();
       throw err;
     }
     await this.auditService.record({
@@ -74,6 +72,13 @@ export class AuthServiceImpl implements AuthService {
       details: { ok: true },
     });
     ExecutionContextService.invalidateAll();
+    await this.auditService.record({
+      type: AuditEventType.EXECUTION_CONTEXT_INVALIDATED,
+      actor: email,
+      reason: 'Execution context invalidated after sign in',
+      timestamp: Date.now(),
+      details: { user },
+    });
     return {
       status: 'authenticated',
       user,
@@ -88,6 +93,13 @@ export class AuthServiceImpl implements AuthService {
     }
     ExecutionContextService.invalidateAll();
     // No email context available, so no audit event for sign out
+    await this.auditService.record({
+      type: AuditEventType.EXECUTION_CONTEXT_INVALIDATED,
+      actor: 'system',
+      reason: 'Execution context invalidated after sign out',
+      timestamp: Date.now(),
+      details: {},
+    });
   }
 
   async createOwner(email: string, password: string): Promise<AuthContextState> {
@@ -111,6 +123,13 @@ export class AuthServiceImpl implements AuthService {
       const user = await this.userRepo.getByEmail(email);
       if (!user) throw new OwnerBootstrapError('Owner creation failed');
       ExecutionContextService.invalidateAll();
+      await this.auditService.record({
+        type: AuditEventType.OWNER_BOOTSTRAP,
+        actor: email,
+        reason: 'Owner account bootstrapped',
+        timestamp: Date.now(),
+        details: { user },
+      });
       return {
         status: 'owner_bootstrap_allowed',
         user,

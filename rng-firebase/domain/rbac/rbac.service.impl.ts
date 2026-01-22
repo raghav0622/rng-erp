@@ -11,6 +11,7 @@ import type { RBACInput } from './rbac.types';
 import type { AuditService } from '../audit/audit.service';
 import { AuditEventType } from '../audit/audit.types';
 
+export class RBACServiceImpl implements RBACService {
   constructor(
     private readonly roleRepo: RoleRepository,
     private readonly assignmentRepo: AssignmentRepository,
@@ -19,48 +20,24 @@ import { AuditEventType } from '../audit/audit.types';
 
   async check(input: RBACInput): Promise<void> {
     // Use RBACInputValidator for feature/action checks
-    let featureRegistry;
-    try {
-      featureRegistry = getFeatureRegistry();
-    } catch (err: any) {
-      await this.auditService.record({
-        type: AuditEventType.RBAC_DENIED,
-        actor: input.userId,
-        target: input.feature,
-        reason: 'Feature registry not initialized',
-        timestamp: Date.now(),
-        details: { input },
-      });
-      throw new RBACMisconfigurationError('Feature registry not initialized');
-    }
+    const featureRegistry = getFeatureRegistry();
     const validator = new RBACInputValidator([...featureRegistry]);
     try {
       validator.validate(input);
     } catch (err: any) {
-      if (err.message === RBACDenialReason.FEATURE_UNKNOWN) {
-        await this.auditService.record({
-          type: AuditEventType.RBAC_DENIED,
-          actor: input.userId,
-          target: input.feature,
-          reason: 'Feature does not exist',
-          timestamp: Date.now(),
-          details: { input },
-        });
-        throw new RBACForbiddenError(RBACDenialReason.FEATURE_UNKNOWN, 'Feature does not exist');
+      await this.auditService.record({
+        type: AuditEventType.FEATURE_FAILED,
+        actor: input.userId,
+        target: input.feature,
+        reason: 'RBACInput validation failed',
+        timestamp: Date.now(),
+        details: { input, error: err },
+      });
+      if (err instanceof RBACForbiddenError) {
+        throw err;
       }
-      if (err.message === RBACDenialReason.ACTION_UNKNOWN) {
-        await this.auditService.record({
-          type: AuditEventType.RBAC_DENIED,
-          actor: input.userId,
-          target: input.feature,
-          reason: 'Action does not exist for feature',
-          timestamp: Date.now(),
-          details: { input },
-        });
-        throw new RBACForbiddenError(
-          RBACDenialReason.ACTION_UNKNOWN,
-          'Action does not exist for feature',
-        );
+      if (err instanceof RBACMisconfigurationError) {
+        throw err;
       }
       throw err;
     }
@@ -119,4 +96,5 @@ import { AuditEventType } from '../audit/audit.types';
       details: { input, decision },
     });
   }
+}
 }

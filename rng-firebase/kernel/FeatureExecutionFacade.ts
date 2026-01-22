@@ -1,10 +1,17 @@
 // FeatureExecutionFacade.ts
 // Thin, promise-based wrapper around KernelExecutor for Suspense-ready usage (no React import)
 import type { CommandFeature } from '../feature-execution-engine/contracts/feature';
-import type { KernelExecutor } from '../kernel/kernel-executor';
+
+export interface IKernelExecutor {
+  execute<TInput, TResult>(
+    feature: CommandFeature<TInput, TResult>,
+    userId: string,
+    input: TInput,
+  ): Promise<TResult>;
+}
 
 export class FeatureExecutionFacade {
-  constructor(private readonly executor: KernelExecutor) {}
+  constructor(private readonly executor: IKernelExecutor) {}
 
   /**
    * Suspense-ready promise-based feature execution.

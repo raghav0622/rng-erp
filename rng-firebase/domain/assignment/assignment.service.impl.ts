@@ -1,4 +1,3 @@
-import { getFeatureRegistry } from '../feature/feature.registry';
 // AssignmentService implementation enforcing all invariants for AssignmentScope
 
 import type { AssignmentRepository } from '../../repositories/assignment.repository';
@@ -31,7 +30,7 @@ export class AssignmentServiceImpl implements AssignmentService {
     const user = await this.userRepo.getById(input.userId);
     if (!user) {
       await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
+        type: AuditEventType.ASSIGNMENT_CREATE_FAILED,
         actor: input.userId,
         target: input.feature,
         reason: 'User does not exist',
@@ -44,7 +43,7 @@ export class AssignmentServiceImpl implements AssignmentService {
     // 2. User role
     if (!user.role) {
       await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
+        type: AuditEventType.ASSIGNMENT_CREATE_FAILED,
         actor: input.userId,
         target: input.feature,
         reason: 'User has no role',
@@ -57,7 +56,7 @@ export class AssignmentServiceImpl implements AssignmentService {
     // 3. Clients forbidden
     if (user.role === 'client') {
       await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
+        type: AuditEventType.ASSIGNMENT_CREATE_FAILED,
         actor: input.userId,
         target: input.feature,
         reason: 'Clients cannot receive assignments',
@@ -70,7 +69,7 @@ export class AssignmentServiceImpl implements AssignmentService {
     // 4. Owner-only actions forbidden
     if (RBAC_INVARIANTS.OWNER_ONLY_ACTIONS.includes(input.action)) {
       await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
+        type: AuditEventType.ASSIGNMENT_CREATE_FAILED,
         actor: input.userId,
         target: input.feature,
         reason: 'Owner-only actions cannot be assigned',
@@ -80,49 +79,13 @@ export class AssignmentServiceImpl implements AssignmentService {
       throw new AssignmentInvariantViolationError('Owner-only actions cannot be assigned');
     }
 
-    // Feature/action existence is enforced here against the initialized registry.
-    let featureDef: { feature: string; actions: readonly string[] } | undefined;
-    try {
-      featureDef = getFeatureRegistry().find((f) => f.feature === input.feature);
-    } catch (err: any) {
-      await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
-        actor: input.userId,
-        target: input.feature,
-        reason: 'Feature registry not initialized',
-        timestamp: Date.now(),
-        details: { input },
-      });
-      throw new AssignmentInvariantViolationError('Feature registry not initialized');
-    }
-    if (!featureDef) {
-      await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
-        actor: input.userId,
-        target: input.feature,
-        reason: 'Feature does not exist',
-        timestamp: Date.now(),
-        details: { input },
-      });
-      throw new AssignmentInvariantViolationError('Feature does not exist');
-    }
-    if (!featureDef.actions.includes(input.action)) {
-      await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
-        actor: input.userId,
-        target: input.feature,
-        reason: 'Action does not exist for feature',
-        timestamp: Date.now(),
-        details: { input },
-      });
-      throw new AssignmentInvariantViolationError('Action does not exist for feature');
-    }
+    // Feature/action existence is enforced by RBACService. AssignmentService only enforces assignment invariants.
 
     // 7. Role ceiling (assignment may NOT grant actions not allowed by rolePermissions)
     const rolePerm = await this.roleRepo.getByRoleAndFeature(user.role, input.feature);
     if (!rolePerm || !rolePerm.actions.includes(input.action)) {
       await this.auditService.record({
-        type: AuditEventType.ASSIGNMENT_REVOKED,
+        type: AuditEventType.ASSIGNMENT_INVARIANT_VIOLATION,
         actor: input.userId,
         target: input.feature,
         reason: 'Assignment would grant action not allowed by role',

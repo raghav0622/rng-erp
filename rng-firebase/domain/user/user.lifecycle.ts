@@ -27,7 +27,7 @@ export function assertUserSignInAllowed(
   if (!user.isEmailVerified) {
     if (auditService && actor) {
       auditService.record({
-        type: AuditEventType.USER_DISABLED,
+        type: AuditEventType.USER_EMAIL_UNVERIFIED,
         actor,
         target: actor,
         reason: 'Email not verified',
