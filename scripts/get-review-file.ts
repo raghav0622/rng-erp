@@ -25,7 +25,8 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_FILE = path.join(ROOT_DIR, 'review_now.ts');
 
-const INCLUDE_PATHS = ['rng-firebase', 'eslint.config.mjs'];
+// const INCLUDE_PATHS = ['rng-platform'];
+const INCLUDE_PATHS = ['rng-forms'];
 
 const EXCLUDE_DIRS = new Set(['dist', 'build', 'node_modules', 'abstract-client-repository']);
 

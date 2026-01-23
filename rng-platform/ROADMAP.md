@@ -1,22 +1,22 @@
 # RNG Platform – Master Roadmap & Checklist
 
-This document is the **single source of truth** for building `rng-platform` from scratch.
-It is written for **coding agents and senior reviewers** to follow step-by-step and
-to verify completeness at each phase.
+This document is the step-by-step build and review checklist for `rng-platform`.
+For the full mental model, see MENTAL_MODEL.md (authoritative for roles, assignments, RBAC, audit, kernel, and platform responsibilities).
 
 ---
 
 ## 0. Foundational Assumptions (LOCKED)
 
 - `rng-platform` is **client-side only**
-- `rng-repository` (formerly abstract-client-repository) is:
-  - a **separate, frozen module**
-  - used as-is
-  - never modified or re-implemented
-- Kernel is authoritative; UI is dumb
+- `rng-repository` is a **separate, frozen module** (never re-implemented)
+- Kernel is law; UI is dumb
 - Everything executes via **features**
 - No server code, no server actions
 - Fail-closed, deterministic, auditable
+- Roles: 'owner', 'manager', 'employee', 'client' (see MENTAL_MODEL.md)
+- Assignments: explicit, unique, no implicit escalation (see MENTAL_MODEL.md)
+- RBAC: pure engine + service, deterministic, all denials explainable
+- Audit: mandatory, not UI-driven
 
 ---
 
@@ -58,7 +58,6 @@ rng-platform/
 │  ├─ react/
 │  ├─ hooks/
 │  └─ react-query/
-│
 ├─ index.ts
 └─ CONTRIBUTION_LAW.md
 ```
@@ -67,32 +66,47 @@ rng-platform/
 
 ## 2. Phase-by-Phase Roadmap
 
-### Phase 0 — Constitution & Law
+### Phase 0 — Constitution & Law (COMPLETE)
 
 Checklist:
 
-- [ ] CONTRIBUTION_LAW.md exists
-- [ ] Kernel constitution written
-- [ ] Execution order defined
-- [ ] Fail-closed guarantees listed
-- [ ] No TODOs allowed rule stated
+- [x] CONTRIBUTION_LAW.md exists
+- [x] Kernel constitution written
+- [x] Execution order defined
+- [x] Fail-closed guarantees listed
+- [x] No TODOs allowed rule stated
+- [x] All domain contracts and invariants explicit
+- [x] All edge cases and forbidden states documented
+- [x] All contracts use BaseEntity from rng-repository where applicable
+- [x] No runtime code, stubs, or TODOs
+- [x] Roles, assignments, RBAC, audit, and kernel bootstrap match MENTAL_MODEL.md
+
+Improvements for future phases:
+
+- [ ] Add canonical error code enums/types for each domain (not just kernel)
+- [ ] Add explicit contract for platform-level audit/event logging
+- [ ] Add versioning and amendment commentary to all contracts
+- [ ] Add a global glossary/definitions doc for canonical terms
+- [ ] Add a mechanical enforcement checklist for contributors
 
 Deliverables:
 
 - CONTRIBUTION_LAW.md
 - KERNEL_CONSTITUTION.md
+- MENTAL_MODEL.md
 
 ---
 
 ### Phase 1 — Kernel Bootstrap & Feature Registry
 
+
 Checklist:
 
-- [ ] initializeKernel(config) implemented
-- [ ] Feature registry initialized **only once**
-- [ ] Duplicate feature+action detection
-- [ ] Kernel refuses boot if registry missing
-- [ ] Registry immutable after boot
+- [x] initializeKernel(config) implemented
+- [x] Feature registry initialized **only once**
+- [x] Duplicate feature+action detection
+- [x] Kernel refuses boot if registry missing
+- [x] Registry immutable after boot
 
 Rules:
 
@@ -105,15 +119,16 @@ Rules:
 
 Checklist:
 
-- [ ] ExecutionContextService implemented
-- [ ] Context is deeply frozen
-- [ ] Epoch-based invalidation
-- [ ] FeatureExecutionEngine enforces:
-  - [ ] Context validation
-  - [ ] RBAC
-  - [ ] scopeResolver
-  - [ ] Audit emission
-  - [ ] Error wrapping
+- [x] ExecutionContextService implemented
+- [x] Context is deeply frozen (recursive freeze)
+- [x] Epoch-based invalidation
+- [x] FeatureExecutionEngine enforces:
+  - [x] Context validation
+  - [x] RBAC
+  - [x] scopeResolver
+  - [x] Audit emission
+  - [x] Error wrapping
+  - [x] Feature timeout enforced
 
 ---
 
@@ -121,62 +136,70 @@ Checklist:
 
 Checklist:
 
-- [ ] RBAC contracts defined
-- [ ] Pure RBAC engine (no repos)
-- [ ] RBACService orchestrates repos
-- [ ] Finite denial reasons enum
-- [ ] Assignment scope support:
-  - [ ] feature
-  - [ ] resource
-  - [ ] featureDoc
+- [x] RBAC contracts defined
+- [x] Pure RBAC engine (stateless, deterministic, no repos)
+- [x] RBACService orchestrates assignments and role fetch
+- [x] Finite denial reasons enum (no free-text errors)
+- [x] Assignment scope support:
+  - [x] feature
+  - [x] resource
+  - [x] featureDoc
+
+Improvements:
+
+- [x] Audit emission for all RBAC decisions
+- [x] Owner bypass enforced by kernel
+- [x] No forbidden patterns (no RBAC in features/UI/hooks, no wildcards, no role stacking)
 
 ---
 
 ### Phase 4 — Core Domains (MANDATORY)
 
-For **each domain**:
 
+For **each domain**:
 Required files:
 
-- [ ] domain.contracts.ts
-- [ ] domain.invariants.ts
-- [ ] domain.errors.ts
-- [ ] domain.service.ts
-- [ ] domain.service.impl.ts
-- [ ] domain.tests.ts
+- [x] domain.contract.ts
+- [x] domain.invariants.ts
+- [x] domain.errors.ts
+- [x] domain.service.ts
+- [x] domain.service.impl.ts
+- [x] domain.tests.ts
 
 Domains:
 
-- [ ] user
-- [ ] auth
-- [ ] assignment
-- [ ] audit
-- [ ] taxonomy
-- [ ] notifications
-- [ ] chat
-- [ ] tickets
+- [x] user
+- [x] auth
+- [x] assignment
+- [x] audit
+- [x] taxonomy
+- [x] notifications
+- [x] chat
+- [x] tickets
 
 ---
+
 
 ### Phase 5 — Repository Implementations
 
 Checklist:
 
-- [ ] One repository per domain
-- [ ] Uses rng-repository only
-- [ ] No business logic
-- [ ] No invariant checks
-- [ ] Soft delete respected
-- [ ] Deterministic queries
+- [x] One repository per domain
+- [x] Uses rng-repository only
+- [x] No business logic
+- [x] No invariant checks
+- [x] Soft delete respected
+- [x] Deterministic queries
 
 ---
+
 
 ### Phase 6 — Kernel Executor & Facade
 
 Checklist:
 
-- [ ] KernelExecutor implemented
-- [ ] Enforces auth → context → RBAC → engine
+- [x] KernelExecutor implemented
+- [x] Enforces auth → context → RBAC → engine
 - [ ] FeatureExecutionFacade added
 - [ ] Suspense-safe promise semantics
 
