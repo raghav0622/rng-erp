@@ -1,102 +1,50 @@
-# Copilot Instructions for RNG ERP Monorepo
+<!-- Copilot / AI agent guidance for contributors and automation -->
 
-## 🧠 LOCKED MENTAL MODEL (DO NOT CHANGE)
+# Copilot instructions — rng-erp
 
-You MUST strictly follow this model for all work in `rng-firebase/`:
+This file contains focused, actionable guidance for AI coding agents working in this repository.
 
-### Core Principles
+- **Big picture**: This is a Next.js frontend app (Next 16) that hosts a schema-driven form UI (`rng-forms`) and a client-safe Firestore repository (`rng-repository`). UI + schema live in `rng-forms`; data access and durable contracts live in `rng-repository`. Keep business logic and side-effects in service layers (e.g., `rng-firebase`/hooks), not inside form inputs or layouts.
 
-- **Features are the only unit of business logic**
-- **App developers NEVER:**
-  - access auth state
-  - check roles
-  - check permissions
-  - access repositories
-- **All execution flows through a Feature Execution Engine**
-- **RBAC = Role (global) + Assignment (Firestore-tracked)**
-  - Exactly one role per user
-  - Assignments are dynamic and resource-based
-- **ExecutionContext is immutable and centrally created**
-- **Errors bubble to Suspense / Error Boundaries**
-- **Signup is closed** (owner bootstrap + invited users only)
+- **Key directories**:
+  - `rng-forms/` — schema DSL, UI registry, field components, and form runtime. See `rng-forms/RNGForm.tsx`, `rng-forms/dsl/factory.ts`, and `rng-forms/core/Registry.tsx`.
+  - `rng-repository/` — frozen v1 contract for Firestore access. Read [rng-repository/README.md](../rng-repository/README.md) before changing public APIs.
+  - `lib/` — app-level utilities (env, firebase client, logging). See `lib/env.ts` for environment schema.
+  - `app/`, `rng-ui/`, `rng-forms/` — primary React entry points and shared UI patterns.
 
-### 🧱 REQUIRED LAYERING (ENFORCE STRICTLY)
+- **Architectural constraints & conventions**:
+  - Zod is the canonical validation layer; field-level props map to React Hook Form rules. Use Zod for schema changes and inference.
+  - `rng-forms` is UI-only: do not add data fetching or side effects inside field components. Use service hooks (e.g., `rng-firebase/*`) for fetching/persistence.
+  - Registry pattern: new field components must be added to `rng-forms/core/Registry.tsx` (lazy-load with `React.lazy`) and exposed via the DSL (`rng-forms/dsl/factory.ts`) when needed.
+  - `rng-repository` is intentionally frozen: do not change public surface or error types; follow README freeze rules.
 
-`rng-firebase/`
-├── abstract-client-repository/   ✅ exists
-├── feature-execution-engine/     ❌ to build
-├── domain/
-│   ├── auth/
-│   ├── rbac/
-│   ├── user/
-│   ├── assignment/
-│   └── audit/
-├── repositories/
-│   ├── UserRepository
-│   ├── AssignmentRepository
-│   ├── RoleRepository (if needed)
-│   └── AuditRepository
-└── index.ts                      (public surface)
+- **Testing & CI workflows**:
+  - Unit tests use `vitest` configured in `vitest.config.ts`. The default test script runs the `unit` project: `npm run test` (maps to `vitest run --project unit`).
+  - Storybook tests run under the `storybook` vitest project (Playwright + storybook addon).
+  - Example individual test command used in this workspace: `npx vitest run rng-firebase/adapters/adapter-error-mapping.spec.ts`.
 
----
+- **Dev commands (copyable)**:
+  - `npm run dev` — start Next.js dev server
+  - `npm run build` — build Next.js app
+  - `npm run storybook` — start Storybook
+  - `npm run test` — run vitest unit tests
 
-## Project Architecture
+- **TypeScript & resolution notes**:
+  - `tsconfig.json` defines `@/*` and `rng-repository` path mappings. Use the existing alias mapping when adding imports.
+  - `lib/env.ts` centralizes runtime and client env schema using `@t3-oss/env-nextjs`. For any new environment variables, update this file and ensure `vitest.config.ts` test env values are set when needed.
 
-- **Monorepo**: Multiple packages for forms, UI, Firebase integration, and utilities. TypeScript-first, with Next.js powering the main app (`app/`).
-- **Major Packages:**
-  - `app/`: Next.js app entry, layout, and pages. Use for routing and top-level UI.
-  - `lib/`: Shared utilities (env, firebase, logger). Centralize cross-cutting concerns here.
-  - `rng-firebase/`: All business logic and data access must follow the locked model above. Never bypass the feature engine or layering.
-  - `rng-forms/`: Form engine, DSL, React components, hooks, and types. All form logic and UI patterns live here.
-  - `rng-ui/`: Shared UI components and layouts for consistent branding and navigation.
-  - `theme/`, `types/`: Theming and shared type definitions.
+- **Patterns to follow when modifying forms**:
+  1. Create the UI component under `rng-forms/components/`.
+  2. Add an entry (lazy) to `rng-forms/core/Registry.tsx` with the same discriminated `type` used by the schema.
+  3. Add a helper builder to `rng-forms/dsl/factory.ts` and update `rng-forms/dsl/templates.ts` if you need a reusable template.
+  4. Write a small unit test under `rng-forms/stories/_shared` or `rng-forms` tests and run `npm run test`.
 
-## Key Patterns & Conventions
+- **When editing `rng-repository`**:
+  - Read `rng-repository/README.md` first — the module is frozen. Only non-breaking internal fixes are allowed without a major version bump.
 
-- **TypeScript everywhere**; prefer `type` aliases for data shapes.
-- **React functional components** and hooks only. No class components.
-- **Form logic**: Centralized in `rng-forms/` using a DSL (`rng-forms/dsl/`). Use `RNGForm` for dynamic forms. See `rng-forms/stories/` for usage.
-- **Data access**: All business logic in `rng-firebase/` must use the feature execution engine and repositories, never direct Firestore or auth access.
-- **Error boundaries**: Use `core/FieldErrorBoundary.tsx` for form field isolation.
-- **Logging**: Use `lib/logger.ts`.
-- **Environment**: Use `lib/env.ts` for all env variable access.
-- **Composition over inheritance**: Favor hooks and composition patterns.
-- **No business logic in UI**: Keep business logic in hooks or repositories, not in UI components.
+- **PR & patch guidance for AI agents**:
+  - Prefer small, focused patches. Run `npm run test` before submitting.
+  - Do not change `rng-repository` public types or error enums without explicit human approval.
+  - Update `rng-forms/README.md` if you add a new field type or change the DSL surface.
 
-## Developer Workflows
-
-- **Build**: `next build` (app), `tsc` (packages)
-- **Test**: `vitest` for unit tests; contract tests in `rng-firebase/tests/contract/`
-- **Lint**: `eslint .` (uses `eslint.config.mjs`)
-- **Storybook**: (if present) for form components (see `rng-forms/stories/`)
-- **Debugging**: Use Next.js and Vitest built-in tools. For form issues, check hooks in `rng-forms/hooks/`.
-
-## Integration Points
-
-- **Firebase**: All data access via `rng-firebase/feature-execution-engine/` and repositories. Extend these for new data models, never bypass.
-- **Forms**: Use `RNGForm` and the DSL in `rng-forms/` for new forms. See `rng-forms/dsl/factory.ts` and `rng-forms/dsl/templates.ts`.
-- **UI**: Use and extend components in `rng-ui/` for consistent look and feel.
-
-## Examples & References
-
-- **Form usage**: `rng-forms/stories/` and `rng-forms/components/`
-- **Repository contracts**: `rng-firebase/tests/contract/`
-- **Type definitions**: `rng-forms/types/`, `types/`
-
-## AI Agent Guidance
-
-- When adding forms, use the DSL and patterns in `rng-forms/dsl/`.
-- For new data access, extend repositories and domain logic in `rng-firebase/` following the locked model and layering.
-- For new pages, follow Next.js conventions in `app/`.
-- Always reference or update relevant contract tests when changing repository logic.
-
-## Do Not
-
-- Do **not** access Firestore, auth, or permissions directly; always use the feature engine and repositories.
-- Do **not** add business logic to UI components.
-- Do **not** introduce class components or interface-based inheritance.
-
-## See Also
-
-- `README.md` in each package for details and examples.
-- Contract and story files for usage patterns.
+If anything in this guide is unclear or you want more detailed examples (e.g., a step-by-step example of adding a `taxonomy`-style input), tell me what section to expand.

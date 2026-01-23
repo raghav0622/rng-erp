@@ -59,51 +59,9 @@ const eslintConfig = defineConfig([
       'no-restricted-imports': [
         'error',
         {
-          paths: [
-            { name: 'rng-firebase/domain', message: 'Domain is kernel-internal' },
-            { name: 'rng-firebase/repositories', message: 'Repositories are kernel-internal' },
-            { name: 'rng-firebase/adapters', message: 'Adapters are kernel-internal' },
-            {
-              name: 'rng-firebase/domain/auth/ExecutionContextService',
-              message: 'ExecutionContextService is kernel-internal',
-            },
-            {
-              name: 'rng-firebase/domain/rbac/rbac.engine',
-              message: 'RBAC engine is kernel-internal',
-            },
-            {
-              name: 'rng-firebase/domain/rbac/rbac.service',
-              message: 'RBAC service is kernel-internal',
-            },
-            {
-              name: 'rng-firebase/domain/rbac/rbac.service.impl',
-              message: 'RBAC service impl is kernel-internal',
-            },
-            {
-              name: 'rng-firebase/domain/auth/auth.state-machine',
-              message: 'Auth state machine is kernel-internal',
-            },
-          ],
+          paths: [],
           patterns: [
-            { group: ['rng-firebase/domain/**'], message: 'Domain is kernel-internal' },
-            {
-              group: ['rng-firebase/domain/auth/ExecutionContextService'],
-              message: 'ExecutionContextService is kernel-internal',
-            },
-            {
-              group: ['rng-firebase/domain/rbac/**'],
-              message: 'RBAC internals are kernel-internal',
-            },
-            {
-              group: ['rng-firebase/repositories/**'],
-              message: 'Repositories are kernel-internal',
-            },
-            { group: ['rng-firebase/adapters/**'], message: 'Adapters are kernel-internal' },
-            {
-              group: ['rng-firebase/feature-execution-engine/internal/**'],
-              message: 'Feature engine internals are kernel-internal',
-            },
-            { group: ['@kernel/internal/**'], message: 'Kernel internals are not public' },
+            { group: ['rng-repository/**'], message: 'RNG-REPOSITORY Already exports stuff.' },
           ],
         },
       ],
