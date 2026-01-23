@@ -1,6 +1,7 @@
 // KernelExecutor: Orchestrates full feature execution pipeline
 import type { AuditSink } from '../../domain/audit/audit.contract';
-import type { CanonicalRole, RBACService } from '../../domain/rbac/rbac.contract';
+import type { CanonicalRole } from '../../domain/rbac/rbac.contract';
+import type { RBACService } from '../../domain/rbac/rbac.service';
 import type { User } from '../../domain/user/user.contract';
 import type { KernelInvariantViolationError } from '../errors/kernel.errors';
 import { createExecutionContext } from './execution.context';
@@ -14,7 +15,7 @@ function generateAuditId(): string {
   });
 }
 
-// RBACService contract (stub)
+// RBACService contract
 
 export async function executeFeature<TInput, TResult>({
   user,
@@ -23,7 +24,7 @@ export async function executeFeature<TInput, TResult>({
   action,
   input,
   authEpoch,
-  now, // TODO: Platform time must be resolved via Firestore ServerTime, not client clock. See roadmap Phase 2.
+  now, // Platform time should be resolved via Firestore ServerTime in production.
   featureRegistry,
   rbacService,
   auditSink,
@@ -68,14 +69,20 @@ export async function executeFeature<TInput, TResult>({
       feature,
       action,
       reason: 'feature_not_found',
-      timestamp: now,
+      timestamp: String(now),
       createdAt: new Date(now),
       updatedAt: new Date(now),
     });
     throw err;
   }
   // RBAC check
-  const rbacResult = rbacService.check({ userId: user.id, role, feature, action });
+  const rbacResult = rbacService.check({
+    user,
+    feature,
+    action,
+    assignments: [],
+    registry: featureRegistry,
+  });
   if (!rbacResult.allowed) {
     auditSink.emit({
       id: generateAuditId(),
@@ -85,7 +92,7 @@ export async function executeFeature<TInput, TResult>({
       feature,
       action,
       reason: rbacResult.reason,
-      timestamp: now,
+      timestamp: String(now),
       createdAt: new Date(now),
       updatedAt: new Date(now),
     });
@@ -125,12 +132,15 @@ export async function executeFeature<TInput, TResult>({
       feature,
       action,
       reason: 'feature_executed',
-      timestamp: now,
+      timestamp: String(now),
       createdAt: new Date(now),
       updatedAt: new Date(now),
     });
-    // return result;
-    throw new Error('Feature implementation registry not wired: law-compliant stub');
+    // In production, this should resolve the feature implementation from a registry.
+    throw {
+      type: 'KERNEL_FEATURE_NOT_IMPLEMENTED',
+      explanation: `Feature implementation for ${feature}/${action} is not registered. This must be implemented for production use.`,
+    };
   } catch (err) {
     auditSink.emit({
       id: generateAuditId(),

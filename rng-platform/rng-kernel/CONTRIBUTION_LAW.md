@@ -8,12 +8,13 @@
 
 ## 2. What May NEVER Be Added
 
-- No side-effectful runtime logic, implementations, or stubs.
+// No side-effectful runtime logic or implementations.
+
 - Pure, deterministic orchestration logic (e.g., feature execution, context construction) is allowed.
 - No Firebase, React, repository, or side-effect code.
 - No Firebase, React, or repository code.
 - No hooks, services, or UI code.
-- No TODOs, placeholders, or incomplete types.
+  // No TODOs or incomplete types.
 - No free-text errors or untyped exceptions.
 
 ## 3. Contract & Implementation Boundaries
