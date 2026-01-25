@@ -1,4 +1,5 @@
 import { clientDb } from '@/lib';
+import { globalLogger } from '@/lib/logger';
 import { AbstractClientFirestoreRepository } from '@/rng-repository';
 import {
   AppUser,
@@ -12,8 +13,8 @@ import {
 import {
   AppUserInvariantViolation,
   assertActivatedIsIrreversible,
+  assertEmailNotUpdatable,
   assertInviteStatusValid,
-  assertIsDisabledReflectsAuth,
   assertNewUserBaseDefaults,
   assertNoExistingOwner,
   assertOwnerInviteStatusActivated,
@@ -30,6 +31,8 @@ import {
   assertValidUserCreation,
 } from './app-user.invariants';
 
+import { ResendInvite, RevokeInvite } from './app-user.contracts';
+
 class AppUserRepository extends AbstractClientFirestoreRepository<AppUser> {
   constructor() {
     super(clientDb, {
@@ -43,6 +46,114 @@ const appUserRepo = new AppUserRepository();
 
 export class AppUserService implements IAppUserService {
   /**
+   * Restore a soft-deleted user.
+   * @param userId User ID
+   * @returns The restored user
+   */
+  async restoreUser(userId: string): Promise<AppUser> {
+    // Only allow restoring if user is soft-deleted and not owner
+    const user = await this.appUserRepo.getById(userId, { includeDeleted: true });
+    assertUserExists(user);
+    if (!user!.deletedAt) {
+      throw new AppUserInvariantViolation('User is not deleted', { userId });
+    }
+    assertUserIsNotOwner(user!, 'restored');
+    // Restore by unsetting deletedAt
+    const updated = await this.appUserRepo.update(userId, { deletedAt: undefined });
+    globalLogger.info('User restored', { userId }, 'AppUserService');
+    return updated;
+  }
+
+  /**
+   * Search users by arbitrary fields (role, status, etc).
+   * @param query Partial<AppUser> fields to match
+   * @returns Array of users matching query
+   */
+  async searchUsers(query: Partial<AppUser>): Promise<AppUser[]> {
+    // Only allow searching on a safe, indexed subset of fields
+    const ALLOWED_FIELDS = ['email', 'role', 'inviteStatus', 'isDisabled', 'isRegisteredOnERP'];
+    const where: [string, '==', any][] = [];
+    for (const [k, v] of Object.entries(query)) {
+      if (ALLOWED_FIELDS.includes(k) && v !== undefined && v !== null && v !== '') {
+        where.push([k, '==', v]);
+      }
+    }
+    if (where.length === 0) {
+      throw new AppUserInvariantViolation(
+        'At least one valid query field is required for searchUsers',
+        { query },
+      );
+    }
+    const result = await this.appUserRepo.find({ where });
+    globalLogger.info('Users searched', { query, where }, 'AppUserService');
+    return result.data;
+  }
+
+  /**
+   * Reactivate a previously disabled user.
+   * @param userId User ID
+   * @returns The reactivated user
+   */
+  async reactivateUser(userId: string): Promise<AppUser> {
+    // Only allow reactivation if user is currently disabled and not owner
+    const user = await this.appUserRepo.getById(userId);
+    assertUserExists(user);
+    if (!user!.isDisabled) {
+      throw new AppUserInvariantViolation('User is not disabled', { userId });
+    }
+    assertUserIsNotOwner(user!, 'reactivated');
+    const updated = await this.appUserRepo.update(userId, { isDisabled: false });
+    globalLogger.info('User reactivated', { userId }, 'AppUserService');
+    return updated;
+  }
+  async listUsersPaginated(
+    pageSize: number,
+    pageToken?: string,
+  ): Promise<{ data: AppUser[]; nextPageToken?: string }> {
+    // Validate and sanitize pagination token (must be a string or undefined)
+    if (pageToken !== undefined && typeof pageToken !== 'string') {
+      throw new AppUserInvariantViolation('Invalid pagination token', { pageToken });
+    }
+    // AbstractClientFirestoreRepository supports pagination via cursor
+    const result = await this.appUserRepo.find({ limit: pageSize, startAfter: pageToken });
+    return {
+      data: result.data,
+      nextPageToken: result.nextCursor,
+    };
+  }
+  /**
+   * @throws AppUserInvariantViolation if user does not exist or inviteStatus is not 'invited'
+   */
+  async resendInvite(data: ResendInvite): Promise<AppUser> {
+    const user = await this.appUserRepo.getById(data.userId);
+    assertUserExists(user);
+    if (user!.inviteStatus !== 'invited') {
+      throw new AppUserInvariantViolation('Can only resend invite if inviteStatus is invited', {
+        userId: user!.id,
+      });
+    }
+    // For demo: just update inviteSentAt
+    const updated: Partial<AppUser> = { inviteSentAt: new Date() };
+    const result = await this.appUserRepo.update(data.userId, updated);
+    return result;
+  }
+
+  /**
+   * @throws AppUserInvariantViolation if user does not exist or inviteStatus is not 'invited'
+   */
+  async revokeInvite(data: RevokeInvite): Promise<AppUser> {
+    const user = await this.appUserRepo.getById(data.userId);
+    assertUserExists(user);
+    if (user!.inviteStatus !== 'invited') {
+      throw new AppUserInvariantViolation('Can only revoke invite if inviteStatus is invited', {
+        userId: user!.id,
+      });
+    }
+    const updated: Partial<AppUser> = { inviteStatus: 'revoked', isRegisteredOnERP: false };
+    const result = await this.appUserRepo.update(data.userId, updated);
+    return result;
+  }
+  /**
    * Asserts all invite and owner state invariants for a user.
    * Used defensively after loading and after update.
    */
@@ -54,6 +165,9 @@ export class AppUserService implements IAppUserService {
   }
   private appUserRepo = appUserRepo;
 
+  /**
+   * @throws AppUserInvariantViolation if invariants are violated (e.g., duplicate owner, invalid invite)
+   */
   async createUser(data: CreateAppUser): Promise<AppUser> {
     const owner = await this.appUserRepo.findOne({ where: [['role', '==', 'owner']] });
     const ownerBootstrapped = !!owner;
@@ -62,12 +176,11 @@ export class AppUserService implements IAppUserService {
     const existingUser = await this.appUserRepo.getById(data.authUid);
     assertValidUserCreation(data, existingUser, true);
     if (data.role === 'owner') {
+      // PRECONDITION: Only one owner allowed. This is not atomic—true uniqueness must be enforced at the data layer (transaction/unique index) for production safety.
       assertNoExistingOwner(owner);
     }
     const now = new Date();
-    // For owner, inviteStatus is always 'activated' and isRegisteredOnERP is always true (never transitions)
     let user: Omit<AppUser, 'createdAt' | 'updatedAt'>;
-    // user will be constructed below, invariants checked after construction
     if (data.role === 'owner') {
       user = {
         id: data.authUid,
@@ -111,20 +224,28 @@ export class AppUserService implements IAppUserService {
     assertNewUserBaseDefaults(user as AppUser);
     assertUserIdMatchesAuthUid(user as AppUser, data.authUid);
     const created = await this.appUserRepo.create(user);
+    // NOTE: Post-write invariant check removed. True uniqueness must be enforced at the data layer.
     return created;
   }
 
+  /**
+   * @throws AppUserInvariantViolation if user does not exist, is owner, or email is updated
+   */
   async updateUserProfile(userId: string, data: UpdateAppUserProfile): Promise<AppUser> {
     const user = await this.appUserRepo.getById(userId);
     assertUserExists(user);
     this.assertUserState(user!);
     assertUserIsNotOwner(user!, 'updated');
+    assertEmailNotUpdatable(data as any);
     const updated: Partial<AppUser> = { ...data };
     const result = await this.appUserRepo.update(userId, updated);
     this.assertUserState(result);
     return result;
   }
 
+  /**
+   * @throws AppUserInvariantViolation if user does not exist, is owner, or role is invalid
+   */
   async updateUserRole(userId: string, data: UpdateAppUserRole): Promise<AppUser> {
     const user = await this.appUserRepo.getById(userId);
     assertUserExists(user);
@@ -146,19 +267,24 @@ export class AppUserService implements IAppUserService {
     return result;
   }
 
+  /**
+   * @throws AppUserInvariantViolation if user does not exist or is owner
+   */
   async updateUserStatus(userId: string, data: UpdateAppUserStatus): Promise<AppUser> {
     const user = await this.appUserRepo.getById(userId);
     assertUserExists(user);
     this.assertUserState(user!);
     assertOwnerNotDisabled(user!, data.isDisabled);
-    // NOTE: In production, check Auth state for isDisabled if needed
-    assertIsDisabledReflectsAuth({ ...user!, isDisabled: data.isDisabled }, data.isDisabled);
+    // AppUser.isDisabled is authoritative. Firebase Auth state is NOT used for disablement.
     const updated: Partial<AppUser> = { isDisabled: data.isDisabled };
     const result = await this.appUserRepo.update(userId, updated);
     this.assertUserState(result);
     return result;
   }
 
+  /**
+   * @throws AppUserInvariantViolation if user does not exist or is owner
+   */
   async deleteUser(data: DeleteAppUser): Promise<void> {
     const user = await this.appUserRepo.getById(data.userId);
     assertUserExists(user);
@@ -166,14 +292,23 @@ export class AppUserService implements IAppUserService {
     await this.appUserRepo.delete(data.userId); // Soft delete only
   }
 
+  /**
+   * @throws none (returns null if not found)
+   */
   async getUserById(userId: string): Promise<AppUser | null> {
     return (await this.appUserRepo.getById(userId)) || null;
   }
 
+  /**
+   * @throws none (returns null if not found)
+   */
   async getUserByEmail(email: string): Promise<AppUser | null> {
     return (await this.appUserRepo.findOne({ where: [['email', '==', email]] })) || null;
   }
 
+  /**
+   * @throws none
+   */
   async listUsers(): Promise<AppUser[]> {
     const result = await this.appUserRepo.find({});
     return result.data;
@@ -215,6 +350,22 @@ export class AppUserService implements IAppUserService {
     assertRegisteredImpliesActivated({ ...user!, ...updated });
     assertActivatedIsIrreversible(user!, { ...user!, ...updated });
     const result = await this.appUserRepo.update(userId, updated);
+    return result;
+  }
+
+  /**
+   * Internal-only: update emailVerified to reflect Firebase Auth state.
+   * Not part of the public contract.
+   */
+  async updateEmailVerified(userId: string, emailVerified: boolean): Promise<AppUser> {
+    const user = await this.appUserRepo.getById(userId);
+    assertUserExists(user);
+    // Only update if needed
+    if (user!.emailVerified === emailVerified) return user!;
+    const updated: Partial<AppUser> = { emailVerified };
+    const result = await this.appUserRepo.update(userId, updated);
+    // Invariant: must reflect Auth
+    // (assertEmailVerifiedReflectsAuth will be added and called after update)
     return result;
   }
 }

@@ -18,7 +18,8 @@
     "postcss.config.cjs",
     "tsconfig.tsbuildinfo",
     "vitest.config.ts",
-    "vitest.shims.d.ts"
+    "vitest.shims.d.ts",
+    ".next/dev"
   ],
   "files.exclude": {
     "**/.git": true,
@@ -39,6 +40,7 @@
     "postcss.config.cjs": true,
     "tsconfig.tsbuildinfo": true,
     "vitest.config.ts": true,
-    "vitest.shims.d.ts": true
+    "vitest.shims.d.ts": true,
+    ".next/dev": true
   }
 }

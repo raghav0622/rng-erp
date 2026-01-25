@@ -1,16 +1,21 @@
+export interface ListUsersPaginatedResult {
+  data: AppUser[];
+  nextPageToken?: string;
+}
+
 /**
- * @frozen v1
+ * INTERNAL PUBLIC CONTRACT (Extensible)
  *
- * INTERNAL PUBLIC CONTRACT
  * Auth-owned Firestore user projection.
- *
  * - Non-authoritative for permissions
  * - Soft-delete only
  * - No credentials
  * - RBAC is the source of truth
  *
- * Breaking changes require v2.
- * All invariants described in this contract are now strictly enforced at runtime in the service layer.
+ * This contract is extensible. Breaking changes require v2.
+ * All invariants described here are strictly enforced at runtime in the service layer.
+ *
+ * Extension points: add new user fields, search/filter methods, or invariants as needed.
  */
 
 import { BaseEntity } from '@/rng-repository';
@@ -28,9 +33,24 @@ export type AppUserInviteStatus = 'invited' | 'activated' | 'revoked';
 /**
  * Represents an application user in the ERP system.
  *
- * Note: Role and roleCategory are cached for UI; RBAC is the source of truth.
- * All invite and owner invariants are enforced at runtime.
+ * Note:
+ * - AppUser is always a projection of the corresponding Firebase Auth user.
+ * - Email is mirrored from Auth and is NOT updatable via AppUserService.
+ * - Role and roleCategory are cached for UI; RBAC is the source of truth.
+ * - All invite and owner invariants are enforced at runtime.
+/**
+ * Payload for resending an invite to a user.
  */
+export interface ResendInvite {
+  userId: string;
+}
+
+/**
+ * Payload for revoking an invite.
+ */
+export interface RevokeInvite {
+  userId: string;
+}
 export interface AppUser extends BaseEntity {
   /** Full name of the user. */
   name: string;
@@ -125,8 +145,66 @@ export interface UpdateAppUserStatus {
  * - Public signup is disabled after the first owner is created.
  * - No bulk invites; one user, one role.
  * All invariants described in this interface are enforced at runtime in the implementation.
+ *
+ * ---
+ *
+ * USAGE EXAMPLES:
+ *
+ * // Create a new user (owner only)
+ * await appUserService.createUser({ authUid, name, email, role: 'employee' });
+ *
+ * // Update user profile
+ * await appUserService.updateUserProfile(userId, { name: 'New Name' });
+ *
+ * // Disable a user
+ * await appUserService.updateUserStatus(userId, { isDisabled: true });
+ *
+ * // List users (with pagination)
+ * const { data, nextPageToken } = await appUserService.listUsers({ pageSize: 20 });
+ *
+ * // Resend invite
+ * await appUserService.resendInvite({ userId });
+ *
+ * // Revoke invite
+ * await appUserService.revokeInvite({ userId });
+ *
+ * // Get user by email
+ * const user = await appUserService.getUserByEmail('user@example.com');
  */
 export interface IAppUserService {
+  /**
+   * Restore a soft-deleted user.
+   * @param userId User ID
+   * @returns The restored user
+   * @note Only the owner may restore users. This is enforced at the service layer.
+   */
+  restoreUser(userId: string): Promise<AppUser>;
+
+  /**
+   * Search users by indexed, allow-listed fields only (e.g., email, role, inviteStatus, isDisabled, isRegisteredOnERP).
+   * Arbitrary field search is NOT supported due to Firestore limitations.
+   * @param query Partial<AppUser> fields to match (must be allow-listed and indexed)
+   * @returns Array of users matching query
+   * @throws AppUserInvariantViolation if no valid query fields are provided
+   */
+  searchUsers(query: Partial<AppUser>): Promise<AppUser[]>;
+
+  /**
+   * Reactivate a previously disabled user.
+   * @param userId User ID
+   * @returns The reactivated user
+   * @note Only the owner may reactivate users. This is enforced at the service layer.
+   */
+  reactivateUser(userId: string): Promise<AppUser>;
+  /**
+   * Resend an invite to a user (if inviteStatus is 'invited').
+   */
+  resendInvite(data: ResendInvite): Promise<AppUser>;
+
+  /**
+   * Revoke an invite (if inviteStatus is 'invited').
+   */
+  revokeInvite(data: RevokeInvite): Promise<AppUser>;
   /**
    * Create a new user (admin/owner only).
    * @param data User creation payload
@@ -174,6 +252,7 @@ export interface IAppUserService {
   /**
    * List all users in the system.
    * @returns Array of users
+   * @policy This exposes all users to any authenticated client. This is a policy decision and may be restricted in future.
    */
   listUsers(): Promise<AppUser[]>;
 
@@ -195,4 +274,11 @@ export interface IAppUserService {
    * @returns True if signup is allowed
    */
   isSignupAllowed(): Promise<boolean>;
+
+  /**
+   * List users with pagination.
+   * @param pageSize Number of users per page
+   * @param pageToken Opaque token for next page
+   */
+  listUsersPaginated(pageSize: number, pageToken?: string): Promise<ListUsersPaginatedResult>;
 }

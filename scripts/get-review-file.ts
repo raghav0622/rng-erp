@@ -27,7 +27,7 @@ const OUTPUT_FILE = path.join(ROOT_DIR, 'review_now.ts');
 
 // const INCLUDE_PATHS = ['rng-platform'];
 // const INCLUDE_PATHS = ['rng-repository'];
-const INCLUDE_PATHS = ['rng-platform/modules/app-user'];
+const INCLUDE_PATHS = ['rng-platform/modules'];
 
 const EXCLUDE_DIRS = new Set(['dist', 'build', 'node_modules', 'abstract-client-repository']);
 

@@ -1,11 +1,150 @@
 /**
- * @frozen v1
+ * =============================
+ *  CANONICAL APPUSER INVARIANTS
+ * =============================
+ *
+ * This file contains all invariants for AppUser Firestore projection.
+ *
+ * WARNING: This file is too large and mixes multiple domains (ownership, invite, registration, role, etc).
+ * For maintainability, invariants should be split into:
+ *   - ownership.ts
+ *   - invite.ts
+ *   - registration.ts
+ *   - role.ts
+ *
+ * Canonical invariants are grouped below by domain. Deprecated invariants are clearly marked.
+ *
+ * If you add or update invariants, please group them under the correct section header.
+ *
+ * PHASE-2 TODO: Split this file into domain-specific modules.
+ */
+
+// =====================
+// OWNERSHIP INVARIANTS
+// =====================
+
+/**
+ * WARNING: This is a post-write, non-atomic, best-effort check.
+ * It does NOT guarantee uniqueness or prevent corruption.
+ * True uniqueness must be enforced at the data layer (transaction, unique index, or server-side logic).
+ *
+ * Assert that only one owner exists in the system at all times.
+ * Should be checked after any user creation or role update.
+ */
+export async function assertExactlyOneOwner(appUserRepo: { find: Function }): Promise<void> {
+  const owners = await appUserRepo.find({ where: [['role', '==', 'owner']] });
+  if (owners.data.length > 1) {
+    throw new AppUserInvariantViolation('Only one owner is allowed in the system', {
+      ownerIds: owners.data.map((u: any) => u.id),
+    });
+  }
+}
+
+// =====================
+// INVITE LIFECYCLE INVARIANTS
+// =====================
+
+// =====================
+// REGISTRATION/PROFILE INVARIANTS
+// =====================
+
+/**
+ * Assert that email is not updatable via AppUserService.
+ * Should be checked in updateUserProfile.
+ */
+export function assertEmailNotUpdatable(update: Partial<AppUser>): void {
+  if ('email' in update) {
+    throw new AppUserInvariantViolation('Email is not updatable via AppUserService');
+  }
+}
+
+// =====================
+// EMAIL VERIFICATION INVARIANTS
+// =====================
+
+/**
+ * Assert that emailVerified reflects Firebase Auth state.
+ */
+export function assertEmailVerifiedReflectsAuth(user: AppUser, authEmailVerified: boolean): void {
+  if (user.emailVerified !== authEmailVerified) {
+    throw new AppUserInvariantViolation(
+      'emailVerified must reflect Auth email verification state',
+      { userId: user.id },
+    );
+  }
+}
+
+// =====================
+// ROLE SNAPSHOT INVARIANTS
+// =====================
+/**
+ * @frozen
  * INTERNAL PUBLIC CONTRACT
  * AppUser invariant assertions.
  *
  * All invariants described here are strictly enforced at runtime in the service layer.
- * Breaking changes require v2.
+ * This file is extensible. Add new invariants as business rules evolve.
+/**
+ * Assert that a user can be restored (not owner, was soft-deleted).
  */
+export function assertUserCanBeRestored(user: AppUser): void {
+  if (user.role === 'owner') {
+    throw new AppUserInvariantViolation('Owner cannot be restored (cannot be deleted)', {
+      userId: user.id,
+    });
+  }
+  if (!user.deletedAt) {
+    throw new AppUserInvariantViolation('User is not deleted', { userId: user.id });
+  }
+}
+
+/**
+ * Assert that a user can be reactivated (was disabled, not owner).
+ */
+export function assertUserCanBeReactivated(user: AppUser): void {
+  if (user.role === 'owner') {
+    throw new AppUserInvariantViolation('Owner cannot be reactivated (cannot be disabled)', {
+      userId: user.id,
+    });
+  }
+  if (!user.isDisabled) {
+    throw new AppUserInvariantViolation('User is not disabled', { userId: user.id });
+  }
+}
+
+/**
+ * Assert that a user can be invited (not already invited, activated, or revoked).
+ */
+export function assertUserCanBeInvited(user: AppUser): void {
+  if (user.inviteStatus !== 'revoked') {
+    throw new AppUserInvariantViolation('User cannot be re-invited unless revoked', {
+      userId: user.id,
+    });
+  }
+}
+
+/**
+ * Canonical: Assert that a user can be activated (inviteStatus must be 'invited').
+ * Use this for all invite activation transitions.
+ */
+export function assertUserCanBeActivated(user: AppUser): void {
+  if (user.inviteStatus !== 'invited') {
+    throw new AppUserInvariantViolation('User must be invited to activate', { userId: user.id });
+  }
+}
+
+// =====================
+// SEARCH VALIDATION INVARIANTS
+// =====================
+
+/**
+ * Assert that search query is valid (at least one field).
+ */
+export function assertValidUserSearchQuery(query: Partial<AppUser>): void {
+  if (!query || Object.keys(query).length === 0) {
+    throw new AppUserInvariantViolation('Search query must specify at least one field');
+  }
+}
 
 /**
  * AppUser Invariant Assertion Utilities
@@ -139,18 +278,7 @@ export function assertRoleSnapshotUpdate(
 
 // --- Status ---
 
-/**
- * Assert that isDisabled reflects Auth-level disablement only.
- */
-export function assertIsDisabledReflectsAuth(user: AppUser, authIsDisabled: boolean): void {
-  if (user.isDisabled !== authIsDisabled) {
-    throw new AppUserInvariantViolation('isDisabled must reflect Auth-level disablement', {
-      id: user.id,
-      isDisabled: user.isDisabled,
-      authIsDisabled,
-    });
-  }
-}
+// AppUser.isDisabled is the single source of truth for user disablement. Do not sync or reflect Firebase Auth's disabled state.
 
 // --- Deletion ---
 
@@ -263,7 +391,8 @@ export function assertNoExistingOwner(existingOwner: AppUser | null): void {
 // --- Invite Lifecycle Invariants ---
 
 /**
- * Assert that inviteStatus is valid.
+ * Canonical: Assert that inviteStatus is valid (must be one of 'invited', 'activated', 'revoked').
+ * Use this for all invite status field checks.
  */
 export function assertInviteStatusValid(status: AppUserInviteStatus): void {
   if (!['invited', 'activated', 'revoked'].includes(status)) {
@@ -316,18 +445,6 @@ export function assertOwnerInviteStatusActivated(user: AppUser): void {
 }
 
 // --- Queries ---
-
-/**
- * Assert that getUserById/getUserByEmail return null if not found (never throw).
- */
-export function assertUserQueryReturnsNull(result: AppUser | null): void {
-  if (result === undefined) {
-    throw new AppUserInvariantViolation(
-      'User queries must return null if not found, never undefined',
-      {},
-    );
-  }
-}
 
 // --- Utility ---
 
