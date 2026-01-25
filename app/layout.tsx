@@ -1,10 +1,16 @@
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 
-import { ColorSchemeScript, mantineHtmlProps, MantineProvider } from '@mantine/core';
+import { RNGQueryProvider } from '@/rng-query';
+import {
+  ColorSchemeScript,
+  LoadingOverlay,
+  mantineHtmlProps,
+  MantineProvider,
+} from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import type { Metadata } from 'next';
-import React from 'react';
+import React, { Suspense } from 'react';
 import { theme } from '../theme';
 import { SingleInstanceGuard } from './SingleInstanceSafeGuard';
 
@@ -23,10 +29,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <MantineProvider theme={theme}>
-          <Notifications position="top-right" zIndex={1000} />
-          <SingleInstanceGuard>{children}</SingleInstanceGuard>
-        </MantineProvider>
+        <RNGQueryProvider>
+          <MantineProvider theme={theme}>
+            <Notifications position="top-right" zIndex={1000} />
+            <SingleInstanceGuard>
+              <Suspense fallback={<LoadingOverlay />}>{children}</Suspense>
+            </SingleInstanceGuard>
+          </MantineProvider>
+        </RNGQueryProvider>
       </body>
     </html>
   );

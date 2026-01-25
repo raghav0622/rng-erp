@@ -6,6 +6,7 @@
  */
 
 import { FieldValue } from 'firebase/firestore';
+import z from 'zod';
 
 export const REPOSITORY_API_VERSION = '1.0.0';
 
@@ -62,6 +63,13 @@ export interface BaseEntity {
   [key: string]: any;
 }
 
+export const BaseEntitySchema = {
+  id: z.string(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+  deletedAt: z.date().nullable().optional(),
+  _v: z.number().optional(),
+};
 /**
  * 🔒 Frozen repository context (v1).
  * Carries request metadata into repository operations; policy enforcement lives above this layer.
