@@ -56,10 +56,12 @@ export interface AppUser extends BaseEntity {
   name: string;
   /**
    * Email address (mirrored from auth provider, not user-editable).
+   * This is intentionally exposed for user management and notifications.
    */
   email: string;
   /**
    * Cached role for UI display. RBAC is authoritative.
+   * Only the role field is exposed; permissions are enforced elsewhere.
    */
   role: AppUserRole;
   /** Optional category for the user's role (e.g., department). */
@@ -75,8 +77,13 @@ export interface AppUser extends BaseEntity {
   /** Whether the user is disabled (cannot sign in). */
   isDisabled: boolean;
 
+  /**
+   * Invite status for onboarding flows. Only exposed for invite lifecycle management.
+   */
   inviteStatus: AppUserInviteStatus;
+  /** Timestamp when invite was sent. */
   inviteSentAt?: Date;
+  /** Timestamp when invite was responded to (activated). */
   inviteRespondedAt?: Date;
 
   /** True if the user has completed ERP registration. */

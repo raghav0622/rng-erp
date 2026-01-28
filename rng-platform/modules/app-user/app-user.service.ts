@@ -1,5 +1,4 @@
 import { clientDb } from '@/lib';
-import { globalLogger } from '@/lib/logger';
 import { AbstractClientFirestoreRepository } from '@/rng-repository';
 import {
   AppUser,
@@ -13,7 +12,10 @@ import {
 import {
   AppUserInvariantViolation,
   assertActivatedIsIrreversible,
+  assertDisabledUserCannotAcceptInvite,
   assertEmailNotUpdatable,
+  assertInviteRespondedAtForActivated,
+  assertInviteSentAtForInvited,
   assertInviteStatusValid,
   assertNewUserBaseDefaults,
   assertNoExistingOwner,
@@ -60,7 +62,6 @@ export class AppUserService implements IAppUserService {
     assertUserIsNotOwner(user!, 'restored');
     // Restore by unsetting deletedAt
     const updated = await this.appUserRepo.update(userId, { deletedAt: undefined });
-    globalLogger.info('User restored', { userId }, 'AppUserService');
     return updated;
   }
 
@@ -85,7 +86,6 @@ export class AppUserService implements IAppUserService {
       );
     }
     const result = await this.appUserRepo.find({ where });
-    globalLogger.info('Users searched', { query, where }, 'AppUserService');
     return result.data;
   }
 
@@ -103,7 +103,6 @@ export class AppUserService implements IAppUserService {
     }
     assertUserIsNotOwner(user!, 'reactivated');
     const updated = await this.appUserRepo.update(userId, { isDisabled: false });
-    globalLogger.info('User reactivated', { userId }, 'AppUserService');
     return updated;
   }
   async listUsersPaginated(
@@ -132,7 +131,7 @@ export class AppUserService implements IAppUserService {
         userId: user!.id,
       });
     }
-    // For demo: just update inviteSentAt
+    // Only update inviteSentAt
     const updated: Partial<AppUser> = { inviteSentAt: new Date() };
     const result = await this.appUserRepo.update(data.userId, updated);
     return result;
@@ -149,7 +148,12 @@ export class AppUserService implements IAppUserService {
         userId: user!.id,
       });
     }
-    const updated: Partial<AppUser> = { inviteStatus: 'revoked', isRegisteredOnERP: false };
+    // Explicitly clear inviteRespondedAt; preserve inviteSentAt for audit
+    const updated: Partial<AppUser> = {
+      inviteStatus: 'revoked',
+      isRegisteredOnERP: false,
+      inviteRespondedAt: undefined,
+    };
     const result = await this.appUserRepo.update(data.userId, updated);
     return result;
   }
@@ -169,6 +173,8 @@ export class AppUserService implements IAppUserService {
    * @throws AppUserInvariantViolation if invariants are violated (e.g., duplicate owner, invalid invite)
    */
   async createUser(data: CreateAppUser): Promise<AppUser> {
+    // Signup gating is enforced defensively in BOTH AppAuthService and AppUserService.
+    // Owner uniqueness is protected here; only one owner is allowed.
     const owner = await this.appUserRepo.findOne({ where: [['role', '==', 'owner']] });
     const ownerBootstrapped = !!owner;
     assertSignupAllowed(ownerBootstrapped);
@@ -235,6 +241,7 @@ export class AppUserService implements IAppUserService {
     const user = await this.appUserRepo.getById(userId);
     assertUserExists(user);
     this.assertUserState(user!);
+    // Defensive only: RBAC for owner profile updates is enforced in AppAuthService. This invariant is a last-resort guard.
     assertUserIsNotOwner(user!, 'updated');
     assertEmailNotUpdatable(data as any);
     const updated: Partial<AppUser> = { ...data };
@@ -339,6 +346,9 @@ export class AppUserService implements IAppUserService {
     if (user!.inviteStatus !== 'invited') {
       throw new AppUserInvariantViolation('User is not in invited state', { userId });
     }
+    // Enforce invite lifecycle invariants
+    assertInviteSentAtForInvited(user!);
+    assertDisabledUserCannotAcceptInvite(user!);
     const now = new Date();
     const updated: Partial<AppUser> = {
       inviteStatus: 'activated',
@@ -349,6 +359,7 @@ export class AppUserService implements IAppUserService {
     assertInviteStatusValid(updated.inviteStatus!);
     assertRegisteredImpliesActivated({ ...user!, ...updated });
     assertActivatedIsIrreversible(user!, { ...user!, ...updated });
+    assertInviteRespondedAtForActivated({ ...user!, ...updated });
     const result = await this.appUserRepo.update(userId, updated);
     return result;
   }

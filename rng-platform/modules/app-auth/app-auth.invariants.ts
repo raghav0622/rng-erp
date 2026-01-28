@@ -14,11 +14,7 @@
  */
 
 import { AppUser } from '../app-user/app-user.contracts';
-import {
-  InternalAuthError,
-  NotAuthenticatedError,
-  OwnerAlreadyExistsError,
-} from './app-auth.errors';
+import { InternalAuthError, NotAuthenticatedError } from './app-auth.errors';
 
 /**
  * Throws if a Firebase Auth user exists but no AppUser exists (invalid state).
@@ -33,9 +29,6 @@ export function assertNoOrphanAuthUser(authUserExists: boolean, appUser: AppUser
 /**
  * Throws if the owner account already exists.
  */
-export function assertOwnerNotExists(ownerExists: boolean): void {
-  if (ownerExists) throw new OwnerAlreadyExistsError();
-}
 
 /**
  * Throws if the AppUser is not present (does not assert Firebase auth/session validity).

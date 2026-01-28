@@ -1,3 +1,5 @@
+import type { ListUsersPaginatedResult } from '../app-user/app-user.contracts';
+export type { ListUsersPaginatedResult } from '../app-user/app-user.contracts';
 /**
  * INTERNAL PUBLIC CONTRACT (Extensible)
  *
@@ -68,6 +70,13 @@ export type AuthSessionState =
   | 'authenticated' // Firebase + AppUser resolved
   | 'password-reset'; // Password reset flow initiated or in progress (transient, UI-driven)
 
+/**
+ * AuthSession represents the current authentication state and user projection.
+ * Only the fields defined here are intentionally exposed to consumers.
+ *
+ * - state: High-level session state (see AuthSessionState)
+ * - user: The current AppUser projection, or null if unauthenticated
+ */
 export interface AuthSession {
   state: AuthSessionState;
   user: AppUser | null;
@@ -115,21 +124,22 @@ export type UnsubscribeFn = () => void;
 
 export interface IAppAuthService {
   /**
-   * Restore a soft-deleted user.
+   * Restore a soft-deleted user (restore = deleted user).
    * @param userId User ID
    * @returns The restored user
    */
   restoreUser(userId: string): Promise<AppUser>;
 
   /**
-   * Search users by arbitrary fields (role, status, etc).
-   * @param query Partial<AppUser> fields to match
+   * Search users by indexed, allow-listed fields only (email, role, inviteStatus, isDisabled, isRegisteredOnERP).
+   * Only allow-listed, indexed fields are honored. Other fields are ignored.
+   * @param query Partial<AppUser> fields to match (must be allow-listed)
    * @returns Array of users matching query
    */
   searchUsers(query: Partial<AppUser>): Promise<AppUser[]>;
 
   /**
-   * Reactivate a previously disabled user.
+   * Reactivate a previously disabled user (reactivate = disabled user).
    * @param userId User ID
    * @returns The reactivated user
    */
@@ -352,8 +362,19 @@ export interface IAppAuthService {
    * - Applies only to the active session user
    * - Cannot be used to confirm password for other users
    * - Required before sensitive operations.
+   *
+   * SEMANTICS:
+   * confirmPassword does not mutate state; it only re-authenticates the active session.
    */
   confirmPassword(password: string): Promise<void>;
+  /**
+   * List users with pagination.
+   *
+   * @param pageSize Number of users to return per page
+   * @param pageToken Optional token for pagination
+   * @returns Paginated result of users and next page token
+   */
+  listUsersPaginated(pageSize: number, pageToken?: string): Promise<ListUsersPaginatedResult>;
 
   /**
    * Public but intended for internal use by the service and hooks.

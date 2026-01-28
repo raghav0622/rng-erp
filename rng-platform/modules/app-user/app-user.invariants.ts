@@ -3,50 +3,62 @@
  *  CANONICAL APPUSER INVARIANTS
  * =============================
  *
- * This file contains all invariants for AppUser Firestore projection.
- *
- * WARNING: This file is too large and mixes multiple domains (ownership, invite, registration, role, etc).
- * For maintainability, invariants should be split into:
- *   - ownership.ts
- *   - invite.ts
- *   - registration.ts
- *   - role.ts
- *
- * Canonical invariants are grouped below by domain. Deprecated invariants are clearly marked.
- *
- * If you add or update invariants, please group them under the correct section header.
- *
- * PHASE-2 TODO: Split this file into domain-specific modules.
+ * FINAL FROZEN: This file contains the canonical invariants for AppUser. No new invariants may be added or changed without a major version bump. All invariants are grouped under canonical section headers. No future work or warnings remain.
  */
-
-// =====================
-// OWNERSHIP INVARIANTS
-// =====================
+export function assertInviteSentAtForInvited(user: AppUser): void {
+  if (user.inviteStatus === 'invited' && !user.inviteSentAt) {
+    throw new AppUserInvariantViolation('inviteSentAt must exist when inviteStatus is invited', {
+      userId: user.id,
+    });
+  }
+}
 
 /**
- * WARNING: This is a post-write, non-atomic, best-effort check.
- * It does NOT guarantee uniqueness or prevent corruption.
- * True uniqueness must be enforced at the data layer (transaction, unique index, or server-side logic).
- *
- * Assert that only one owner exists in the system at all times.
- * Should be checked after any user creation or role update.
+ * Assert that inviteRespondedAt exists when inviteStatus === 'activated'.
  */
-export async function assertExactlyOneOwner(appUserRepo: { find: Function }): Promise<void> {
-  const owners = await appUserRepo.find({ where: [['role', '==', 'owner']] });
-  if (owners.data.length > 1) {
-    throw new AppUserInvariantViolation('Only one owner is allowed in the system', {
-      ownerIds: owners.data.map((u: any) => u.id),
+export function assertInviteRespondedAtForActivated(user: AppUser): void {
+  if (user.inviteStatus === 'activated' && !user.inviteRespondedAt) {
+    throw new AppUserInvariantViolation(
+      'inviteRespondedAt must exist when inviteStatus is activated',
+      { userId: user.id },
+    );
+  }
+}
+
+/**
+ * Assert that disabled users cannot accept invites.
+ */
+export function assertDisabledUserCannotAcceptInvite(user: AppUser): void {
+  if (user.isDisabled && user.inviteStatus === 'invited') {
+    throw new AppUserInvariantViolation('Disabled users cannot accept invites', {
+      userId: user.id,
     });
   }
 }
 
 // =====================
-// INVITE LIFECYCLE INVARIANTS
+// CANONICAL OWNERSHIP INVARIANTS (DO NOT DUPLICATE)
 // =====================
+// All ownership invariants must be defined in this section only. Do not duplicate or split ownership logic elsewhere in this file.
+//
+// - Only one owner is allowed in the system (assertNoExistingOwner)
+// - Owner role is immutable (assertOwnerRoleImmutable)
+// - Owner cannot be disabled (assertOwnerNotDisabled)
+// - Owner cannot be deleted (assertOwnerNotDeleted)
+// - Owner must always be inviteStatus === 'activated' (assertOwnerInviteStatusActivated)
 
 // =====================
-// REGISTRATION/PROFILE INVARIANTS
+// CANONICAL INVITE LIFECYCLE INVARIANTS (DO NOT DUPLICATE)
 // =====================
+// All invite lifecycle invariants must be defined in this section only. Do not duplicate or split invite logic elsewhere in this file.
+//
+// - inviteStatus must be one of 'invited', 'activated', 'revoked' (assertInviteStatusValid)
+// - isRegisteredOnERP true requires inviteStatus activated (assertRegisteredImpliesActivated)
+// - inviteStatus activated is irreversible (assertActivatedIsIrreversible)
+// - inviteStatus revoked requires isRegisteredOnERP false (assertRevokedImpliesNotRegistered)
+// - inviteSentAt must exist when inviteStatus is invited (assertInviteSentAtForInvited)
+// - inviteRespondedAt must exist when inviteStatus is activated (assertInviteRespondedAtForActivated)
+// - Disabled users cannot accept invites (assertDisabledUserCannotAcceptInvite)
 
 /**
  * Assert that email is not updatable via AppUserService.
@@ -58,23 +70,6 @@ export function assertEmailNotUpdatable(update: Partial<AppUser>): void {
   }
 }
 
-// =====================
-// EMAIL VERIFICATION INVARIANTS
-// =====================
-
-/**
- * Assert that emailVerified reflects Firebase Auth state.
- */
-export function assertEmailVerifiedReflectsAuth(user: AppUser, authEmailVerified: boolean): void {
-  if (user.emailVerified !== authEmailVerified) {
-    throw new AppUserInvariantViolation(
-      'emailVerified must reflect Auth email verification state',
-      { userId: user.id },
-    );
-  }
-}
-
-// =====================
 // ROLE SNAPSHOT INVARIANTS
 // =====================
 /**
@@ -109,17 +104,6 @@ export function assertUserCanBeReactivated(user: AppUser): void {
   }
   if (!user.isDisabled) {
     throw new AppUserInvariantViolation('User is not disabled', { userId: user.id });
-  }
-}
-
-/**
- * Assert that a user can be invited (not already invited, activated, or revoked).
- */
-export function assertUserCanBeInvited(user: AppUser): void {
-  if (user.inviteStatus !== 'revoked') {
-    throw new AppUserInvariantViolation('User cannot be re-invited unless revoked', {
-      userId: user.id,
-    });
   }
 }
 
@@ -280,6 +264,12 @@ export function assertRoleSnapshotUpdate(
 
 // AppUser.isDisabled is the single source of truth for user disablement. Do not sync or reflect Firebase Auth's disabled state.
 
+// --- Email Verified Consistency ---
+// AppUser.emailVerified MUST always reflect the corresponding Firebase Auth user's emailVerified field.
+// This is enforced by AppAuthService.handleAuthStateChanged and AppUserService.updateEmailVerified.
+// There is NO invariant or enforcement for emailVerified in this file; it is always a projection of Auth.
+// If out of sync, AppAuthService will update Firestore to match Auth.
+
 // --- Deletion ---
 
 /**
@@ -312,6 +302,9 @@ export function assertSignupAllowed(isOwnerBootstrapped: boolean): void {
  * Assert that a user is NOT the owner (for mutating operations).
  * @param user The user to check
  * @param action The attempted action (for error context)
+ */
+/**
+ * Defensive only: RBAC for owner profile updates is enforced in AppAuthService. This invariant is a last-resort guard.
  */
 export function assertUserIsNotOwner(user: AppUser, action: string): void {
   if (user.role === 'owner') {

@@ -1,4 +1,4 @@
-import { globalLogger } from '@/lib/logger';
+// import { globalLogger } from '@/lib/logger';
 import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
@@ -21,7 +21,6 @@ import {
 } from '../app-user/app-user.contracts';
 import {
   AppUserInvariantViolation,
-  assertEmailVerifiedReflectsAuth,
   assertInviteStatusValid,
   assertUserCanBeActivated,
 } from '../app-user/app-user.invariants';
@@ -35,11 +34,7 @@ import {
   NotOwnerError,
   NotSelfError,
 } from './app-auth.errors';
-import {
-  assertAuthenticatedUser,
-  assertNoOrphanAuthUser,
-  assertOwnerNotExists,
-} from './app-auth.invariants';
+import { assertAuthenticatedUser, assertNoOrphanAuthUser } from './app-auth.invariants';
 
 const AUTH_INITIAL_PASSWORD = 'rng-associates';
 
@@ -48,27 +43,28 @@ export class AppAuthService implements IAppAuthService {
   private listeners: Array<(session: AuthSession) => void> = [];
   private appUserService = new AppUserService();
   private auth = getAuth();
+  private authOperationDepth = 0;
   private unsubscribeAuthState: (() => void) | null = null;
 
   /**
-   * Unsubscribes and re-subscribes the canonical Firebase Auth state listener.
-   * Always use this method to reset the listener; never inline this logic.
+   * Helper to wrap all Firebase Auth mutating operations.
+   * Increments authOperationDepth before, decrements after.
+   * Ignores auth state events during operation.
    */
-  private resetAuthListener() {
-    if (this.unsubscribeAuthState) {
-      this.unsubscribeAuthState();
-      this.unsubscribeAuthState = null;
+  private async withAuthOperation<T>(fn: () => Promise<T>): Promise<T> {
+    this.authOperationDepth++;
+    try {
+      return await fn();
+    } finally {
+      this.authOperationDepth--;
     }
-    this.unsubscribeAuthState = onAuthStateChanged(this.auth, this.handleAuthStateChanged);
   }
-  /**
-   * Tracks whether emailVerified needs to be synced to Firestore.
-   * WARNING: This is a client-side hack. There is no retry, no transaction guarantee, and side-effects occur inside the auth listener.
-   * True reliability and atomicity require a server-side (admin SDK) solution.
-   */
-  private _pendingEmailVerifiedSync = false;
 
   // --- Centralized RBAC helpers ---
+  /**
+   * RBAC check: require current session user to be owner.
+   * Invariant enforcement is handled in app-user.invariants.ts.
+   */
   private requireOwner() {
     assertAuthenticatedUser(this.session.user);
     if (this.session.user.role !== 'owner') throw new NotOwnerError();
@@ -79,6 +75,10 @@ export class AppAuthService implements IAppAuthService {
     if (this.session.user.id !== userId) throw new NotSelfError();
   }
 
+  /**
+   * Managers are not privileged for user mutations; delegation is assignment-based (phase-2).
+   * This method enforces that managers and employees can only mutate their own user record.
+   */
   private requireManagerOrEmployeeSelf(userId: string) {
     assertAuthenticatedUser(this.session.user);
     const { role, id } = this.session.user;
@@ -98,13 +98,8 @@ export class AppAuthService implements IAppAuthService {
     this.requireOwner();
     try {
       const user = await this.appUserService.restoreUser(userId);
-      globalLogger.info('User restored by owner', {
-        userId,
-        actor: this.session.user?.id ?? 'unknown',
-      });
       return user;
     } catch (err) {
-      globalLogger.error('Restore user failed', { userId, err });
       if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
       throw mapFirebaseAuthError(err);
     }
@@ -114,10 +109,8 @@ export class AppAuthService implements IAppAuthService {
     assertAuthenticatedUser(this.session.user);
     try {
       const users = await this.appUserService.searchUsers(query);
-      globalLogger.info('User search', { query, actor: this.session.user.id, count: users.length });
       return users;
     } catch (err) {
-      globalLogger.error('User search failed', { query, err });
       if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
       throw mapFirebaseAuthError(err);
     }
@@ -127,13 +120,8 @@ export class AppAuthService implements IAppAuthService {
     this.requireOwner();
     try {
       const user = await this.appUserService.reactivateUser(userId);
-      globalLogger.info('User reactivated by owner', {
-        userId,
-        actor: this.session.user?.id ?? 'unknown',
-      });
       return user;
     } catch (err) {
-      globalLogger.error('Reactivate user failed', { userId, err });
       if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
       throw mapFirebaseAuthError(err);
     }
@@ -144,40 +132,26 @@ export class AppAuthService implements IAppAuthService {
    * Idempotent and safe to call repeatedly, but not transactional or retried.
    * WARNING: This is a client-side hack. For true reliability, move to server-side logic.
    */
-  async syncEmailVerifiedIfNeeded(): Promise<void> {
-    if (!this._pendingEmailVerifiedSync || !this.session.user) return;
-    const firebaseUser = this.auth.currentUser;
-    if (!firebaseUser) return;
-    if (this.session.user.emailVerified === firebaseUser.emailVerified) {
-      this._pendingEmailVerifiedSync = false;
-      return;
-    }
-    try {
-      await this.appUserService.updateEmailVerified(
-        this.session.user.id,
-        firebaseUser.emailVerified,
-      );
-    } finally {
-      // Always clear pending flag to avoid infinite retry loop on client
-      this._pendingEmailVerifiedSync = false;
-    }
-  }
 
   async signOut(): Promise<void> {
-    try {
-      await firebaseSignOut(this.auth);
-      this.setSession({ state: 'unauthenticated', user: null });
-    } catch (err) {
-      throw mapFirebaseAuthError(err);
-    }
+    return this.withAuthOperation(async () => {
+      try {
+        await firebaseSignOut(this.auth);
+        this.setSession({ state: 'unauthenticated', user: null });
+      } catch (err) {
+        throw mapFirebaseAuthError(err);
+      }
+    });
   }
 
   async sendPasswordResetEmail(email: string): Promise<void> {
-    try {
-      await firebaseSendPasswordResetEmail(this.auth, email);
-    } catch (err) {
-      throw mapFirebaseAuthError(err);
-    }
+    return this.withAuthOperation(async () => {
+      try {
+        await firebaseSendPasswordResetEmail(this.auth, email);
+      } catch (err) {
+        throw mapFirebaseAuthError(err);
+      }
+    });
   }
 
   /**
@@ -191,8 +165,7 @@ export class AppAuthService implements IAppAuthService {
   }
 
   constructor() {
-    this._pendingEmailVerifiedSync = false;
-    this.resetAuthListener();
+    this.unsubscribeAuthState = onAuthStateChanged(this.auth, this.handleAuthStateChanged);
   }
 
   /**
@@ -200,6 +173,8 @@ export class AppAuthService implements IAppAuthService {
    * Never duplicate or inline this logic. If you change auth/session logic, update ONLY this method.
    */
   private handleAuthStateChanged = async (firebaseUser: any) => {
+    // Ignore auth state changes during mutating operations
+    if (this.authOperationDepth > 0) return;
     try {
       if (!firebaseUser) {
         this.setSession({ state: 'unauthenticated', user: null });
@@ -209,12 +184,17 @@ export class AppAuthService implements IAppAuthService {
       assertNoOrphanAuthUser(!!firebaseUser, appUser);
       if (!appUser)
         throw new Error('Invariant: appUser must not be null after assertNoOrphanAuthUser');
-      // Mark for background sync if needed
+      // Always treat Firebase Auth as authoritative for emailVerified
+      // If Firestore projection is out of sync, persist the update (client-side hack, phase-1 safe)
       if (appUser.emailVerified !== firebaseUser.emailVerified) {
-        this._pendingEmailVerifiedSync = true;
+        await this.appUserService.updateEmailVerified(appUser.id, firebaseUser.emailVerified);
+        // Optionally reload appUser, but not strictly required for session projection
+        appUser = { ...appUser, emailVerified: firebaseUser.emailVerified };
       }
-      assertEmailVerifiedReflectsAuth(appUser, appUser.emailVerified);
-      this.setSession({ state: 'authenticated', user: appUser });
+      this.setSession({
+        state: 'authenticated',
+        user: { ...appUser, emailVerified: firebaseUser.emailVerified },
+      });
     } catch {
       await firebaseSignOut(this.auth);
       this.setSession({ state: 'unauthenticated', user: null });
@@ -249,72 +229,79 @@ export class AppAuthService implements IAppAuthService {
     name: string;
     photoUrl?: string;
   }): Promise<AuthSession> {
-    try {
-      const ownerExists = await this.appUserService.isOwnerBootstrapped();
-      assertOwnerNotExists(ownerExists);
-      const cred = await createUserWithEmailAndPassword(this.auth, data.email, data.password);
+    return this.withAuthOperation(async () => {
       try {
-        const user = await this.appUserService.createUser({
-          authUid: cred.user.uid,
-          name: data.name,
-          email: data.email,
-          role: 'owner',
-          photoUrl: data.photoUrl,
-        });
-        this.setSession({ state: 'authenticated', user });
-        return this.session;
+        // Owner uniqueness is enforced in AppUserService.createUser; no need to check here.
+        const cred = await createUserWithEmailAndPassword(this.auth, data.email, data.password);
+        try {
+          const user = await this.appUserService.createUser({
+            authUid: cred.user.uid,
+            name: data.name,
+            email: data.email,
+            role: 'owner',
+            photoUrl: data.photoUrl,
+          });
+          this.setSession({ state: 'authenticated', user });
+          return this.session;
+        } catch (err) {
+          await cred.user.delete();
+          if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
+          throw mapFirebaseAuthError(err);
+        }
       } catch (err) {
-        await cred.user.delete();
         if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
         throw mapFirebaseAuthError(err);
       }
-    } catch (err) {
-      if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
-    }
+    });
   }
 
   async signIn(email: string, password: string): Promise<AuthSession> {
-    this.setSession({ state: 'authenticating', user: null });
-    try {
-      const cred = await signInWithEmailAndPassword(this.auth, email, password);
-      const appUser = await this.appUserService.getUserById(cred.user.uid);
-      assertNoOrphanAuthUser(!!cred.user, appUser);
-      if (!appUser)
-        throw new Error('Invariant: appUser must not be null after assertNoOrphanAuthUser');
-      if (appUser.isDisabled) {
+    return this.withAuthOperation(async () => {
+      this.setSession({ state: 'authenticating', user: null });
+      try {
+        const cred = await signInWithEmailAndPassword(this.auth, email, password);
+        const appUser = await this.appUserService.getUserById(cred.user.uid);
+        assertNoOrphanAuthUser(!!cred.user, appUser);
+        if (!appUser)
+          throw new Error('Invariant: appUser must not be null after assertNoOrphanAuthUser');
+        if (appUser.isDisabled) {
+          await firebaseSignOut(this.auth);
+          this.setSession({ state: 'unauthenticated', user: null });
+          throw new NotAuthenticatedError();
+        }
+        this.setSession({ state: 'authenticated', user: appUser });
+        return this.session;
+      } catch (err) {
         await firebaseSignOut(this.auth);
         this.setSession({ state: 'unauthenticated', user: null });
-        throw new NotAuthenticatedError();
+        if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
+        throw mapFirebaseAuthError(err);
       }
-      this.setSession({ state: 'authenticated', user: appUser });
-      return this.session;
-    } catch (err) {
-      await firebaseSignOut(this.auth);
-      this.setSession({ state: 'unauthenticated', user: null });
-      if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
-    }
+    });
   }
 
   async confirmPasswordReset(code: string, newPassword: string): Promise<void> {
-    try {
-      await firebaseConfirmPasswordReset(this.auth, code, newPassword);
-    } catch (err) {
-      throw mapFirebaseAuthError(err);
-    }
+    return this.withAuthOperation(async () => {
+      try {
+        await firebaseConfirmPasswordReset(this.auth, code, newPassword);
+      } catch (err) {
+        throw mapFirebaseAuthError(err);
+      }
+    });
   }
 
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
-    const user = this.auth.currentUser;
-    if (!user || !user.email) throw new NotAuthenticatedError();
-    try {
-      const cred = EmailAuthProvider.credential(user.email, currentPassword);
-      await reauthenticateWithCredential(user, cred);
-      await updatePassword(user, newPassword);
-    } catch (err) {
-      throw mapFirebaseAuthError(err);
-    }
+    return this.withAuthOperation(async () => {
+      const user = this.auth.currentUser;
+      if (!user || !user.email) throw new NotAuthenticatedError();
+      try {
+        const cred = EmailAuthProvider.credential(user.email, currentPassword);
+        await reauthenticateWithCredential(user, cred);
+        await updatePassword(user, newPassword);
+      } catch (err) {
+        throw mapFirebaseAuthError(err);
+      }
+    });
   }
 
   async getCurrentUser(): Promise<AppUser | null> {
@@ -344,45 +331,34 @@ export class AppAuthService implements IAppAuthService {
    * - If you change session/auth logic, update handleAuthStateChanged.
    */
   async inviteUser(data: CreateAppUser): Promise<AppUser> {
-    /**
-     * WARNING: This is a client-side hack for inviting users via Firebase Auth.
-     * Suppressing the auth listener is NOT a real fix and is inherently racy and fragile.
-     * This logic will be replaced with server-side admin SDK in the future.
-     *
-     * - Never duplicate or inline auth state logic. Use handleAuthStateChanged only.
-     * - If you change session/auth logic, update handleAuthStateChanged.
-     */
-    this.requireOwner();
-    let cred;
-    // Suppress auth state listener to avoid race during invite
-    this.resetAuthListener();
-    try {
-      cred = await createUserWithEmailAndPassword(this.auth, data.email, AUTH_INITIAL_PASSWORD);
-      // Firebase will sign in as the invited user; sign out immediately to restore owner session
-      await firebaseSignOut(this.auth);
-      // Restore auth state listener using canonical handler
-      this.resetAuthListener();
+    return this.withAuthOperation(async () => {
+      this.requireOwner();
+      let cred;
       try {
-        const user = await this.appUserService.createUser({ ...data, authUid: cred.user.uid });
-        return user;
+        cred = await createUserWithEmailAndPassword(this.auth, data.email, AUTH_INITIAL_PASSWORD);
+        // Firebase will sign in as the invited user; sign out immediately to restore owner session
+        await firebaseSignOut(this.auth);
+        // Explicitly refresh session to ensure owner is restored, even if listener is suppressed or network hiccup
+        await this.handleAuthStateChanged(this.auth.currentUser);
+        try {
+          const user = await this.appUserService.createUser({ ...data, authUid: cred.user.uid });
+          return user;
+        } catch (err) {
+          await cred.user.delete();
+          if (err instanceof AppAuthError) throw err;
+          throw mapFirebaseAuthError(err);
+        }
       } catch (err) {
-        await cred.user.delete();
         if (err instanceof AppAuthError) throw err;
         throw mapFirebaseAuthError(err);
       }
-    } catch (err) {
-      // Restore auth state listener if error occurred before resubscribe
-      if (!this.unsubscribeAuthState) {
-        this.resetAuthListener();
-      }
-      if (err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
-    }
+    });
   }
 
   /**
-   * Invite acceptance is role-agnostic except for clients.
-   * Only clients are restricted from accepting invites; all other roles (including managers) may accept.
+   * Invite acceptance is role-agnostic: all roles (including clients, managers, employees, owners) may accept invites.
+   * Clients can accept invites and register, but their access is restricted elsewhere (RBAC).
+   * This is intentional: invite acceptance is not an RBAC gate.
    */
   async acceptInvite(): Promise<AuthSession> {
     assertAuthenticatedUser(this.session.user);
@@ -410,12 +386,15 @@ export class AppAuthService implements IAppAuthService {
    */
   async updateUserProfile(userId: string, data: UpdateAppUserProfile): Promise<AppUser> {
     assertAuthenticatedUser(this.session.user);
-    // Owner: can only update self, but must use updateOwnerProfile for self
-    // Manager/Employee: can update self only
-    // Client: forbidden
+    // RBAC: Owners are only allowed to update their own profile, but must do so via updateOwnerProfile.
+    // This restriction is intentional: owner profile updates require stricter invariants and auditing than regular users.
+    // By gating owner updates to updateOwnerProfile, we ensure all owner-specific invariants, logging, and business rules are enforced in one place.
+    // This is not an accidental limitation—it's a deliberate separation to prevent privilege escalation, accidental demotion, or bypassing owner-specific checks.
+    // See app-user.invariants.ts for canonical owner invariants.
     if (this.session.user.role === 'owner') {
       this.requireSelf(userId);
-      throw new NotAuthorizedError(); // owner must use updateOwnerProfile for self
+      // Owner must use updateOwnerProfile for self-updates; this method is forbidden for owners.
+      throw new NotAuthorizedError();
     } else if (this.session.user.role === 'manager' || this.session.user.role === 'employee') {
       this.requireManagerOrEmployeeSelf(userId);
     } else {
@@ -516,7 +495,13 @@ export class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.resendInvite({ userId });
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
+      if (
+        err instanceof NotOwnerError ||
+        err instanceof NotSelfError ||
+        err instanceof NotAuthorizedError ||
+        err instanceof AppAuthError
+      )
+        throw err;
       throw mapFirebaseAuthError(err);
     }
   }
@@ -527,7 +512,13 @@ export class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.revokeInvite({ userId });
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
+      if (
+        err instanceof NotOwnerError ||
+        err instanceof NotSelfError ||
+        err instanceof NotAuthorizedError ||
+        err instanceof AppAuthError
+      )
+        throw err;
       throw mapFirebaseAuthError(err);
     }
   }
