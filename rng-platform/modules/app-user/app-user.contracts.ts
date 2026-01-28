@@ -7,7 +7,7 @@ export interface ListUsersPaginatedResult {
  * INTERNAL PUBLIC CONTRACT (Extensible)
  *
  * Auth-owned Firestore user projection.
- * - Non-authoritative for permissions
+ * - Not authoritative for permissions; see RBAC
  * - Soft-delete only
  * - No credentials
  * - RBAC is the source of truth
@@ -60,7 +60,7 @@ export interface AppUser extends BaseEntity {
    */
   email: string;
   /**
-   * Cached role for UI display. RBAC is authoritative.
+   * Cached role for UI display. RBAC is the source of truth for permissions.
    * Only the role field is exposed; permissions are enforced elsewhere.
    */
   role: AppUserRole;

@@ -27,10 +27,12 @@ import {
   assertRevokedImpliesNotRegistered,
   assertRoleSnapshotUpdate,
   assertSignupAllowed,
+  assertUserCanBeRestored,
   assertUserExists,
   assertUserIdMatchesAuthUid,
   assertUserIsNotOwner,
   assertValidUserCreation,
+  assertValidUserSearchQuery,
 } from './app-user.invariants';
 
 import { ResendInvite, RevokeInvite } from './app-user.contracts';
@@ -60,8 +62,37 @@ export class AppUserService implements IAppUserService {
       throw new AppUserInvariantViolation('User is not deleted', { userId });
     }
     assertUserIsNotOwner(user!, 'restored');
+
+    // --- Restore semantics for invited/activated users ---
+    // If restoring an invited user, inviteStatus must be preserved and inviteSentAt must exist.
+    // If inviteSentAt is missing for an invited user, restoration fails defensively.
+    if (user!.inviteStatus === 'invited') {
+      // Defensive: ensure inviteSentAt is present for invited users
+      // (restoration must not allow accepting an old invite if the timestamp is missing)
+      if (!user!.inviteSentAt) {
+        throw new AppUserInvariantViolation('Cannot restore invited user without inviteSentAt', {
+          userId,
+        });
+      }
+    }
+
     // Restore by unsetting deletedAt
     const updated = await this.appUserRepo.update(userId, { deletedAt: undefined });
+
+    // Enforce invariants after restore
+    // - inviteStatus is preserved
+    // - invited users must have valid inviteSentAt
+    if (updated.inviteStatus === 'invited') {
+      // This will throw if inviteSentAt is missing
+      assertInviteSentAtForInvited(updated);
+    }
+    // Add any other state checks as needed (e.g., assertUserCanBeRestored)
+    assertUserCanBeRestored(updated);
+
+    // Inline comment: Restoring a soft-deleted user preserves inviteStatus.
+    // Invited users must have a valid inviteSentAt; otherwise, restoration fails.
+    // This prevents restoring users into an invalid or ambiguous invite state.
+
     return updated;
   }
 
@@ -71,6 +102,8 @@ export class AppUserService implements IAppUserService {
    * @returns Array of users matching query
    */
   async searchUsers(query: Partial<AppUser>): Promise<AppUser[]> {
+    // Enforce invariant: query must specify at least one field
+    assertValidUserSearchQuery(query);
     // Only allow searching on a safe, indexed subset of fields
     const ALLOWED_FIELDS = ['email', 'role', 'inviteStatus', 'isDisabled', 'isRegisteredOnERP'];
     const where: [string, '==', any][] = [];
@@ -78,12 +111,6 @@ export class AppUserService implements IAppUserService {
       if (ALLOWED_FIELDS.includes(k) && v !== undefined && v !== null && v !== '') {
         where.push([k, '==', v]);
       }
-    }
-    if (where.length === 0) {
-      throw new AppUserInvariantViolation(
-        'At least one valid query field is required for searchUsers',
-        { query },
-      );
     }
     const result = await this.appUserRepo.find({ where });
     return result.data;

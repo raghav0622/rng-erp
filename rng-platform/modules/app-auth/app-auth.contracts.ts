@@ -51,7 +51,7 @@ import {
  *
  * Note:
  * - token is derived from Firebase Auth
- * - AppUser is the authoritative ERP user projection
+ * - AppUser is the ERP user projection (see RBAC for permissions)
  */
 
 /**
@@ -61,14 +61,12 @@ import {
  * Exactly one state is active at any time.
  *
  * Note:
- * - The 'password-reset' state is transient and UI-driven; it does not persist across reloads.
  */
 export type AuthSessionState =
   | 'unknown' // App booting, Firebase not resolved yet
   | 'unauthenticated' // No Firebase user
   | 'authenticating' // Sign-in / sign-up in progress
-  | 'authenticated' // Firebase + AppUser resolved
-  | 'password-reset'; // Password reset flow initiated or in progress (transient, UI-driven)
+  | 'authenticated'; // Firebase + AppUser resolved
 
 /**
  * AuthSession represents the current authentication state and user projection.
@@ -406,9 +404,6 @@ export interface IAppAuthService {
  * authenticating → authenticated
  *
  * authenticated → unauthenticated
- * authenticated → password-reset
- *
- * password-reset → unauthenticated
  *
  */
 
