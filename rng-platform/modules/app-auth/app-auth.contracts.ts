@@ -28,12 +28,9 @@ export type { ListUsersPaginatedResult } from '../app-user/app-user.contracts';
  * - Initial password is NOT secret and MUST be changed by the user
  * - AppUser module is INTERNAL and must not be used directly by apps
  *
- * INITIAL PASSWORD POLICY
+ * FIRESTORE-ONLY INVITE MODEL
  * ----------------------
- * - initial password is ALWAYS: "rng-associates"
- * - password is temporary and non-secret
- * - UX MUST force password change on first login
- * - Service does NOT manage password rotation
+ * - All contracts now reflect Firestore-only invite model.
  *
  * This contract is extensible. Breaking changes require v2.
  * Extension points: add new user fields, search/filter methods, or invariants as needed.

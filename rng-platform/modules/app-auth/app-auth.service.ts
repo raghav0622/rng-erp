@@ -1,3 +1,4 @@
+// Removed misplaced acceptInvite method(s) from file top
 // import { globalLogger } from '@/lib/logger';
 import {
   createUserWithEmailAndPassword,
@@ -23,11 +24,15 @@ import {
   AppUserInvariantViolation,
   assertInviteStatusValid,
   assertUserCanBeActivated,
+  assertUserIdMatchesAuthUid,
 } from '../app-user/app-user.invariants';
 import { AppUserService } from '../app-user/app-user.service';
 import { AuthSession, IAppAuthService, UnsubscribeFn } from './app-auth.contracts';
 import {
   AppAuthError,
+  InviteAlreadyAcceptedError,
+  InviteInvalidError,
+  InviteRevokedError,
   mapFirebaseAuthError,
   NotAuthenticatedError,
   NotAuthorizedError,
@@ -37,7 +42,7 @@ import {
 } from './app-auth.errors';
 import { assertAuthenticatedUser, assertNoOrphanAuthUser } from './app-auth.invariants';
 
-export class AppAuthService implements IAppAuthService {
+class AppAuthService implements IAppAuthService {
   private session: AuthSession = { state: 'unknown', user: null };
   private listeners: Array<(session: AuthSession) => void> = [];
   private appUserService = new AppUserService();
@@ -320,96 +325,96 @@ export class AppAuthService implements IAppAuthService {
     }
   }
 
+  // ...existing code...
   /**
-   * This operation is inherently unsafe on the client and MUST be migrated to admin-side execution.
-   *
-   * WARNING: This is a client-side hack for inviting users via Firebase Auth.
-   * Suppressing the auth listener is NOT a real fix and is inherently racy and fragile.
-   * This logic will be replaced with server-side admin SDK in the future.
-   *
-   * - Never duplicate or inline auth state logic. Use handleAuthStateChanged only.
-   * - If you change session/auth logic, update handleAuthStateChanged.
+   * Owner-only: Create a Firestore-only invite (AppUser with inviteStatus = 'invited').
+   * Does NOT create a Firebase Auth user. Enforces email uniqueness at AppUser layer.
    */
   async inviteUser(data: CreateAppUser): Promise<AppUser> {
-    return this.withAuthOperation(async () => {
-      this.requireOwner();
-
-      // Snapshot the current AuthSession and Firebase user before invite
-      const prevSession = this.getSessionSnapshot();
-      const prevFirebaseUser = this.auth.currentUser;
-
-      let cred;
-      let createdUser: AppUser | undefined;
-      try {
-        cred = await createUserWithEmailAndPassword(
-          this.auth,
-          data.email,
-          /* initial password removed */ undefined as any,
-        );
-
-        // Immediately sign out the invited user (Firebase will have switched context)
-        await firebaseSignOut(this.auth);
-
-        // --- INVITE HACK: restore owner session deterministically ---
-        // Never rely on this.auth.currentUser after signOut (it will be null)
-        // Instead, re-sign-in as the owner if needed, then trigger canonical session logic
-        // This is safe under constraints: no credentials are stored, and session is always restored
-        if (prevFirebaseUser) {
-          // If not already signed in as owner, attempt to re-sign-in (best effort, see below)
-          if (!this.auth.currentUser || this.auth.currentUser.uid !== prevFirebaseUser.uid) {
-            // Only attempt re-sign-in if email is non-null (should always be for real users)
-            if (typeof prevFirebaseUser.email === 'string') {
-              try {
-                // Removed insecure re-sign-in with AUTH_INITIAL_PASSWORD. This logic is obsolete and should be replaced with a secure invite flow.
-              } catch {}
-            }
-          }
-        }
-        // Always trigger canonical session logic for listeners
-        await this.handleAuthStateChanged(this.auth.currentUser);
-
-        try {
-          createdUser = await this.appUserService.createUser({ ...data, authUid: cred.user.uid });
-          return createdUser;
-        } catch (err) {
-          await cred.user.delete();
-          if (err instanceof AppAuthError) throw err;
-          throw mapFirebaseAuthError(err);
-        }
-      } catch (err) {
-        // On any error, restore the previous session state for the owner
-        // This ensures the owner never ends up logged out due to invite flow failures
-        if (prevSession && prevSession.user) {
-          this.setSession(prevSession);
-        } else {
-          this.setSession({ state: 'unauthenticated', user: null });
-        }
-        if (err instanceof AppAuthError) throw err;
-        throw mapFirebaseAuthError(err);
-      }
-    });
-  }
-
-  /**
-   * Invite acceptance is role-agnostic: all roles (including clients, managers, employees, owners) may accept invites.
-   * Clients can accept invites and register, but their access is restricted elsewhere (RBAC).
-   * This is intentional: invite acceptance is not an RBAC gate.
-   */
-  async acceptInvite(): Promise<AuthSession> {
-    assertAuthenticatedUser(this.session.user);
-    // Canonical invite activation checks
-    // Invite must exist, not be revoked, and be in 'invited' state
-    // Use assertInviteStatusValid and assertUserCanBeActivated from app-user.invariants
-    assertInviteStatusValid(this.session.user.inviteStatus);
-    assertUserCanBeActivated(this.session.user);
+    this.requireOwner();
     try {
-      const user = await this.appUserService.activateInvitedUser(this.session.user.id);
-      this.setSession({ state: 'authenticated', user });
-      return this.session;
+      // No authUid at invite time; only email, name, role, etc.
+      const { authUid, ...inviteData } = data;
+      const user = await this.appUserService.createUser({ ...inviteData, authUid: '' });
+      return user;
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
+      if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
       throw mapFirebaseAuthError(err);
     }
+  }
+  // Use assertInviteStatusValid and assertUserCanBeActivated from app-user.invariants
+  /**
+   * Signup with invite: creates Firebase Auth user ONLY if a valid invite exists.
+   * 1. Checks AppUser by email, asserts inviteStatus === 'invited', not revoked/disabled
+   * 2. Creates Firebase Auth user
+   * 3. Links authUid to AppUser
+   * 4. Activates invite (inviteStatus → activated, isRegisteredOnERP → true)
+   * Fails if any invariant is violated.
+   */
+  async signupWithInvite(email: string, password: string): Promise<AuthSession> {
+    // Step 1: Check for invited AppUser
+    let invitedUser: AppUser | null = null;
+    try {
+      invitedUser = await this.appUserService.getUserByEmail(email);
+    } catch (err) {
+      throw new InviteInvalidError();
+    }
+    if (!invitedUser) throw new InviteInvalidError();
+    if (invitedUser.inviteStatus !== 'invited') throw new InviteAlreadyAcceptedError();
+    if (invitedUser.isDisabled) throw new NotAuthorizedError();
+    if (String(invitedUser.inviteStatus) === 'revoked') throw new InviteRevokedError();
+
+    // Step 2: Create Firebase Auth user
+    let cred;
+    try {
+      cred = await createUserWithEmailAndPassword(this.auth, email, password);
+    } catch (err) {
+      throw mapFirebaseAuthError(err);
+    }
+
+    // Step 3: Re-fetch AppUser and check for race
+    let freshUser: AppUser | null = null;
+    try {
+      freshUser = await this.appUserService.getUserByEmail(email);
+    } catch (err) {
+      // Defensive: delete auth user if AppUser fetch fails
+      await cred.user.delete();
+      throw new InviteInvalidError();
+    }
+    if (!freshUser || freshUser.inviteStatus !== 'invited' || freshUser.id === cred.user.uid) {
+      await cred.user.delete();
+      if (!freshUser) throw new InviteInvalidError();
+      if (freshUser.id === cred.user.uid) throw new InviteAlreadyAcceptedError();
+      throw new InviteInvalidError();
+    }
+
+    // Step 4: Link authUid to AppUser
+    try {
+      await this.appUserService.linkAuthIdentity(freshUser.id, cred.user.uid);
+      // Enforce linking invariant immediately after linking
+      const linkedUser = await this.appUserService.getUserById(cred.user.uid);
+      assertUserIdMatchesAuthUid(linkedUser!, cred.user.uid);
+    } catch (err) {
+      // Rollback: delete Auth user if linking fails
+      await cred.user.delete();
+      throw mapFirebaseAuthError(err);
+    }
+
+    // Step 5: Activate invite
+    let activatedUser: AppUser;
+    try {
+      activatedUser = await this.appUserService.activateInvitedUser(cred.user.uid);
+    } catch (err) {
+      // Rollback: delete Auth user if activation fails
+      await cred.user.delete();
+      throw mapFirebaseAuthError(err);
+    }
+
+    // NOTE: This operation is not atomic. Firestore and Firebase Auth are updated in sequence. Rollbacks are best-effort and race conditions are possible, but this is acceptable given system constraints.
+
+    // Set session
+    this.setSession({ state: 'authenticated', user: activatedUser });
+    return this.session;
   }
 
   /**
@@ -432,6 +437,13 @@ export class AppAuthService implements IAppAuthService {
       throw new NotAuthorizedError();
     } else if (this.session.user.role === 'manager' || this.session.user.role === 'employee') {
       this.requireManagerOrEmployeeSelf(userId);
+    } else if (this.session.user.role === 'client') {
+      this.requireSelf(userId);
+      // Clients can only update their own name and photoUrl
+      const allowed: Partial<UpdateAppUserProfile> = {};
+      if ('name' in data) allowed.name = data.name;
+      if ('photoUrl' in data) allowed.photoUrl = data.photoUrl;
+      data = allowed;
     } else {
       this.requireNotClient();
     }
@@ -524,6 +536,9 @@ export class AppAuthService implements IAppAuthService {
     return this.session.user;
   }
 
+  /**
+   * Resend an invite for a user. Only allowed for owner. Only updates inviteSentAt.
+   */
   async resendInvite(userId: string): Promise<AppUser> {
     assertAuthenticatedUser(this.session.user);
     if (this.session.user.role !== 'owner') throw new NotOwnerError();
@@ -541,6 +556,9 @@ export class AppAuthService implements IAppAuthService {
     }
   }
 
+  /**
+   * Revoke an invite for a user. Only allowed for owner. Sets inviteStatus to 'revoked'.
+   */
   async revokeInvite(userId: string): Promise<AppUser> {
     assertAuthenticatedUser(this.session.user);
     if (this.session.user.role !== 'owner') throw new NotOwnerError();
@@ -569,4 +587,26 @@ export class AppAuthService implements IAppAuthService {
       throw mapFirebaseAuthError(err);
     }
   }
+  // Only one acceptInvite implementation should exist
+
+  /**
+   * Accept an invite for the currently authenticated user.
+   * Transitions inviteStatus to 'activated' and sets isRegisteredOnERP = true.
+   * Returns the authenticated session.
+   */
+  async acceptInvite(): Promise<AuthSession> {
+    assertAuthenticatedUser(this.session.user);
+    assertInviteStatusValid(this.session.user!.inviteStatus);
+    assertUserCanBeActivated(this.session.user!);
+    try {
+      const user = await this.appUserService.activateInvitedUser(this.session.user!.id);
+      this.setSession({ state: 'authenticated', user });
+      return this.session;
+    } catch (err) {
+      if (err instanceof AppAuthError) throw err;
+      throw mapFirebaseAuthError(err);
+    }
+  }
 }
+
+export const appAuthService = new AppAuthService();

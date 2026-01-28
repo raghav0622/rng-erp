@@ -29,9 +29,9 @@ import {
   assertSignupAllowed,
   assertUserCanBeRestored,
   assertUserExists,
-  assertUserIdMatchesAuthUid,
   assertUserIsNotOwner,
-  assertValidUserCreation,
+  assertValidInvitedUserCreation,
+  assertValidOwnerCreation,
   assertValidUserSearchQuery,
 } from './app-user.invariants';
 
@@ -62,37 +62,23 @@ export class AppUserService implements IAppUserService {
       throw new AppUserInvariantViolation('User is not deleted', { userId });
     }
     assertUserIsNotOwner(user!, 'restored');
-
+    assertUserCanBeRestored(user!);
     // --- Restore semantics for invited/activated users ---
     // If restoring an invited user, inviteStatus must be preserved and inviteSentAt must exist.
     // If inviteSentAt is missing for an invited user, restoration fails defensively.
     if (user!.inviteStatus === 'invited') {
-      // Defensive: ensure inviteSentAt is present for invited users
-      // (restoration must not allow accepting an old invite if the timestamp is missing)
       if (!user!.inviteSentAt) {
         throw new AppUserInvariantViolation('Cannot restore invited user without inviteSentAt', {
           userId,
         });
       }
     }
-
     // Restore by unsetting deletedAt
     const updated = await this.appUserRepo.update(userId, { deletedAt: undefined });
-
-    // Enforce invariants after restore
-    // - inviteStatus is preserved
-    // - invited users must have valid inviteSentAt
+    // Enforce state invariants only (inviteStatus, inviteSentAt, etc.)
     if (updated.inviteStatus === 'invited') {
-      // This will throw if inviteSentAt is missing
       assertInviteSentAtForInvited(updated);
     }
-    // Add any other state checks as needed (e.g., assertUserCanBeRestored)
-    assertUserCanBeRestored(updated);
-
-    // Inline comment: Restoring a soft-deleted user preserves inviteStatus.
-    // Invited users must have a valid inviteSentAt; otherwise, restoration fails.
-    // This prevents restoring users into an invalid or ambiguous invite state.
-
     return updated;
   }
 
@@ -200,23 +186,29 @@ export class AppUserService implements IAppUserService {
    * @throws AppUserInvariantViolation if invariants are violated (e.g., duplicate owner, invalid invite)
    */
   async createUser(data: CreateAppUser): Promise<AppUser> {
-    // Signup gating is enforced defensively in BOTH AppAuthService and AppUserService.
-    // Owner uniqueness is protected here; only one owner is allowed.
-    const owner = await this.appUserRepo.findOne({ where: [['role', '==', 'owner']] });
-    const ownerBootstrapped = !!owner;
-    assertSignupAllowed(ownerBootstrapped);
-    // NOTE: In production, check auth identity existence here if needed
-    const existingUser = await this.appUserRepo.getById(data.authUid);
-    assertValidUserCreation(data, existingUser, true);
+    // Only apply signup gating for owner creation
+    let owner: AppUser | null = null;
     if (data.role === 'owner') {
-      // PRECONDITION: Only one owner allowed. This is not atomic—true uniqueness must be enforced at the data layer (transaction/unique index) for production safety.
-      assertNoExistingOwner(owner);
+      owner = await this.appUserRepo.findOne({ where: [['role', '==', 'owner']] });
+      const ownerBootstrapped = !!owner;
+      assertSignupAllowed(ownerBootstrapped);
+    }
+    // Email uniqueness must be enforced at the service layer
+    const existingByEmail = await this.appUserRepo.findOne({
+      where: [['email', '==', data.email]],
+    });
+    if (existingByEmail) {
+      throw new AppUserInvariantViolation('Cannot create AppUser: email already exists', {
+        email: data.email,
+      });
     }
     const now = new Date();
     let user: Omit<AppUser, 'createdAt' | 'updatedAt'>;
     if (data.role === 'owner') {
+      assertValidOwnerCreation(data);
+      assertNoExistingOwner(owner);
       user = {
-        id: data.authUid,
+        id: data.authUid!,
         name: data.name,
         email: data.email,
         role: data.role,
@@ -226,14 +218,18 @@ export class AppUserService implements IAppUserService {
         photoUrl: data.photoUrl,
         emailVerified: false,
         isDisabled: false,
-        isRegisteredOnERP: true, // Owner is always registered
-        inviteStatus: 'activated', // Owner is always activated
+        isRegisteredOnERP: true,
+        inviteStatus: 'activated',
         inviteSentAt: undefined,
         inviteRespondedAt: now,
       };
     } else {
+      assertValidInvitedUserCreation(data);
       user = {
-        id: data.authUid,
+        id:
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : Math.random().toString(36).slice(2),
         name: data.name,
         email: data.email,
         role: data.role,
@@ -248,17 +244,39 @@ export class AppUserService implements IAppUserService {
         inviteSentAt: now,
         inviteRespondedAt: undefined,
       };
+      // Invited users MUST NOT require authUid
+      // (do not add authUid or any auth identity fields)
     }
-    // Invite invariants
     assertInviteStatusValid(user.inviteStatus);
     if (user.role === 'owner') assertOwnerInviteStatusActivated(user as AppUser);
     if (user.isRegisteredOnERP) assertRegisteredImpliesActivated(user as AppUser);
     if (user.inviteStatus === 'revoked') assertRevokedImpliesNotRegistered(user as AppUser);
     assertNewUserBaseDefaults(user as AppUser);
-    assertUserIdMatchesAuthUid(user as AppUser, data.authUid);
     const created = await this.appUserRepo.create(user);
-    // NOTE: Post-write invariant check removed. True uniqueness must be enforced at the data layer.
     return created;
+  }
+
+  /**
+   * Link a Firebase Auth identity to an invited AppUser.
+   * One-time operation. Enforces user.id === authUid afterward. Forbidden if already linked.
+   */
+  async linkAuthIdentity(userId: string, authUid: string): Promise<void> {
+    const user = await this.appUserRepo.getById(userId);
+    assertUserExists(user);
+    // Enforce one-time-only linking
+    if (user!.id === authUid) return; // Already linked (idempotent)
+    if (user!.id !== userId)
+      throw new AppUserInvariantViolation('User ID mismatch', { userId, id: user!.id });
+    if (user!.inviteStatus !== 'invited' || user!.isRegisteredOnERP)
+      throw new AppUserInvariantViolation(
+        'Cannot link: user is not invited or already registered',
+        { userId },
+      );
+    // Create new AppUser doc with id = authUid, copy all fields
+    const { id, ...fields } = user!;
+    await this.appUserRepo.create({ ...fields, id: authUid });
+    // Soft delete the old invited doc
+    await this.appUserRepo.update(userId, { deletedAt: new Date() });
   }
 
   /**

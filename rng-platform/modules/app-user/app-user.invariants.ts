@@ -1,3 +1,48 @@
+// =============================
+// CREATION INVARIANTS (SPLIT)
+// =============================
+
+/**
+ * Assert that an invited user can be created (no authUid required).
+ * Enforces: inviteStatus = 'invited', isRegisteredOnERP = false, inviteSentAt exists, email unique.
+ */
+export function assertValidInvitedUserCreation(input: Partial<AppUser>): void {
+  if (input.inviteStatus !== 'invited') {
+    throw new AppUserInvariantViolation('Invited user must have inviteStatus = invited');
+  }
+  if (input.isRegisteredOnERP !== false) {
+    throw new AppUserInvariantViolation('Invited user must have isRegisteredOnERP = false');
+  }
+  if (!input.inviteSentAt) {
+    throw new AppUserInvariantViolation('inviteSentAt must exist for invited user');
+  }
+  // Email uniqueness must be enforced at service layer
+}
+
+/**
+ * Assert that an owner can be created (authUid required).
+ * Enforces: inviteStatus = 'activated', isRegisteredOnERP = true, inviteSentAt undefined, inviteRespondedAt exists, authUid required.
+ */
+export function assertValidOwnerCreation(input: Partial<AppUser>): void {
+  if (input.role !== 'owner') {
+    throw new AppUserInvariantViolation('Owner creation requires role = owner');
+  }
+  if (!input.authUid) {
+    throw new AppUserInvariantViolation('Owner creation requires authUid');
+  }
+  if (input.inviteStatus !== 'activated') {
+    throw new AppUserInvariantViolation('Owner must have inviteStatus = activated');
+  }
+  if (input.isRegisteredOnERP !== true) {
+    throw new AppUserInvariantViolation('Owner must have isRegisteredOnERP = true');
+  }
+  if (input.inviteSentAt !== undefined) {
+    throw new AppUserInvariantViolation('Owner must not have inviteSentAt');
+  }
+  if (!input.inviteRespondedAt) {
+    throw new AppUserInvariantViolation('Owner must have inviteRespondedAt');
+  }
+}
 /**
  * Assert that a user can be activated (inviteStatus must be 'invited').
  * Use this for all invite activation transitions.
@@ -108,22 +153,7 @@ export function assertUserIdMatchesAuthUid(user: AppUser, authUid: string): void
 /**
  * Assert that a new AppUser is valid for creation.
  */
-export function assertValidUserCreation(
-  input: any,
-  existing: AppUser | null,
-  authIdentityExists: boolean,
-): void {
-  if (existing) {
-    throw new AppUserInvariantViolation('Cannot create AppUser if one already exists for authUid', {
-      authUid: input.authUid,
-    });
-  }
-  if (!authIdentityExists) {
-    throw new AppUserInvariantViolation('Auth identity must exist before AppUser creation', {
-      authUid: input.authUid,
-    });
-  }
-}
+// REMOVED: assertValidUserCreation (split into invited/owner creation)
 
 /**
  * Assert that a user can be restored (must be deleted and not owner).
