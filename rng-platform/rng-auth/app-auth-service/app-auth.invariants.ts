@@ -13,22 +13,24 @@
  * See AUTH SESSION STATE TRANSITIONS in app-auth.contracts.ts for the canonical list.
  */
 
-import { AppUser } from '../app-user/app-user.contracts';
 import { InternalAuthError, NotAuthenticatedError } from './app-auth.errors';
+import { AppUser } from './internal-app-user-service/app-user.contracts';
 
 /**
  * Throws if a Firebase Auth user exists but no AppUser exists (invalid state).
- * Enforces: authenticated ⇒ AppUser exists
+ *
+ * Enforces: authenticated ⇒ AppUser exists (no orphans)
+ *
+ * NOTE: This invariant only checks the EXISTENCE relationship.
+ * It does NOT enforce invite lifecycle state (inviteStatus, inviteRespondedAt),
+ * registration state (isRegisteredOnERP), or activation state (isDisabled, emailVerified).
+ * Those post-auth invariants are enforced separately by _resolveAuthenticatedUser().
  */
 export function assertNoOrphanAuthUser(authUserExists: boolean, appUser: AppUser | null): void {
   if (authUserExists && !appUser) {
     throw new InternalAuthError();
   }
 }
-
-/**
- * Throws if the owner account already exists.
- */
 
 /**
  * Throws if the AppUser is not present (does not assert Firebase auth/session validity).
@@ -39,4 +41,14 @@ export function assertAuthenticatedUser(user: AppUser | null | undefined): asser
 
 // Canonical invite lifecycle rules live in app-user.invariants.ts. Do not add or use invite lifecycle checks here.
 
-// Add more invariants as business rules evolve.
+// --- EMAIL VERIFICATION AUTHORITY ---
+//
+// CRITICAL: AppUser.emailVerified is a read-only projection of Firebase Auth.
+// Firebase Auth is the authoritative source for email verification status.
+//
+// INVARIANT ENFORCEMENT:
+// - AppAuthService._resolveAuthenticatedUser() is the ONLY place that syncs emailVerified
+// - AppUserService MUST NEVER update emailVerified arbitrarily
+// - Updates to emailVerified only happen during post-auth resolution
+//
+// This ensures a single source of truth and prevents drift between Firebase and Firestore.

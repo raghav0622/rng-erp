@@ -1,4 +1,84 @@
 /**
+ * CANONICAL EMAIL IDENTITY INVARIANT
+ *
+ * Enforces: Exactly one active (non-soft-deleted) AppUser per email.
+ *
+ * This is the single enforcement point for email uniqueness across all flows:
+ * - createUser (invites, owner bootstrap)
+ * - signupWithInvite
+ * - getUserByEmail and related queries
+ *
+ * Non-atomic check-then-create is intentional (documented trade-off).
+ * This invariant documents what MUST be true after each operation.
+ *
+ * @internal
+ * @throws AppUserInvariantViolation if multiple active AppUsers share the same email
+ */
+export function assertEmailUniqueAndActive(users: AppUser[], email: string): void {
+  const activeUsers = users.filter((user) => !user.deletedAt);
+  if (activeUsers.length > 1) {
+    throw new AppUserInvariantViolation(
+      'Email uniqueness violation: multiple active AppUsers with this email exist',
+      { email, userIds: activeUsers.map((user) => user.id) },
+    );
+  }
+}
+
+/**
+ * CANONICAL AUTH IDENTITY LINKING INVARIANT
+ *
+ * Enforces: Each Firebase Auth user (authUid) links to exactly one active AppUser.
+ * Links are one-time, immutable, and irreversible.
+ *
+ * This is the single enforcement point for auth identity uniqueness:
+ * - linkAuthIdentity (primary linking)
+ * - signupWithInvite (via linkAuthIdentity)
+ * - Any future auth linking operations
+ *
+ * Violations indicate split-brain state (multiple AppUsers for one authUid).
+ *
+ * @internal
+ * @throws AppUserInvariantViolation if user is already linked to a different authUid
+ */
+export function assertAuthIdentityNotLinked(user: AppUser, authUid: string): void {
+  if (user.id === authUid) {
+    throw new AppUserInvariantViolation('Auth identity already linked for this user', {
+      userId: user.id,
+      authUid,
+    });
+  }
+  if (user.inviteStatus !== 'invited' || user.isRegisteredOnERP) {
+    throw new AppUserInvariantViolation('Cannot link auth identity for non-invited user', {
+      userId: user.id,
+      inviteStatus: user.inviteStatus,
+      isRegisteredOnERP: user.isRegisteredOnERP,
+    });
+  }
+}
+
+/**
+ * CANONICAL AUTH UID UNIQUENESS INVARIANT
+ *
+ * Enforces: A Firebase authUid can only belong to one AppUser.
+ * Use alongside assertAuthIdentityNotLinked.
+ *
+ * @internal
+ * @throws AppUserInvariantViolation if authUid is already linked to a different AppUser
+ */
+export function assertAuthUidNotLinked(
+  existingAuthUser: AppUser | null,
+  authUid: string,
+  userId: string,
+): void {
+  if (existingAuthUser) {
+    throw new AppUserInvariantViolation(
+      'Cannot link: AppUser with this authUid already exists (race condition detected)',
+      { authUid, existingUserId: existingAuthUser.id, attemptedLinkFrom: userId },
+    );
+  }
+}
+
+/**
  * Assert that a user can be hard deleted (permanent delete).
  * Throws if user is owner, does not exist, is not soft-deleted, or is registered on ERP.
  *
@@ -431,3 +511,135 @@ export function assertUserExists(
     throw new AppUserInvariantViolation('User must exist', context);
   }
 }
+
+// --- TIMESTAMP VALIDATION (Issue #17) ---
+//
+// CRITICAL: Timestamps must be reasonable to prevent sorting/comparison issues.
+// Client clock skew can cause future timestamps or ancient dates.
+//
+// VALIDATION RULES:
+// - Timestamps must not be in the future (beyond allowed clock skew)
+// - Timestamps must not be ancient (before 2020-01-01, before this ERP system existed)
+// - Server-generated timestamps are trusted; client timestamps are validated
+//
+// Issue #17 fix: Add timestamp validation for clock skew protection.
+
+const ALLOWED_CLOCK_SKEW_MS = 5 * 60 * 1000; // 5 minutes
+const MINIMUM_VALID_DATE = new Date('2020-01-01T00:00:00Z'); // ERP system epoch
+
+/**
+ * Assert that a timestamp is reasonable (not in future, not ancient).
+ * @param timestamp The timestamp to validate (undefined and null are allowed for optional fields)
+ * @param fieldName The field name for error context
+ * @throws AppUserInvariantViolation if timestamp is unreasonable
+ */
+export function assertTimestampReasonable(
+  timestamp: Date | undefined | null,
+  fieldName: string,
+): void {
+  if (!timestamp) return; // Undefined and null timestamps are allowed (optional fields)
+  const now = new Date();
+  const maxAllowed = new Date(now.getTime() + ALLOWED_CLOCK_SKEW_MS);
+  if (timestamp > maxAllowed) {
+    throw new AppUserInvariantViolation(
+      `Timestamp ${fieldName} is in the future (clock skew detected)`,
+      {
+        fieldName,
+        timestamp,
+        now,
+        allowedSkewMs: ALLOWED_CLOCK_SKEW_MS,
+      },
+    );
+  }
+  if (timestamp < MINIMUM_VALID_DATE) {
+    throw new AppUserInvariantViolation(
+      `Timestamp ${fieldName} is before system epoch (invalid date)`,
+      {
+        fieldName,
+        timestamp,
+        minimumValidDate: MINIMUM_VALID_DATE,
+      },
+    );
+  }
+}
+
+/**
+ * Validate all timestamps on a user object for clock skew protection.
+ * Issue #17 fix: Comprehensive timestamp validation.
+ */
+export function assertUserTimestampsReasonable(user: Partial<AppUser>): void {
+  assertTimestampReasonable(user.inviteSentAt, 'inviteSentAt');
+  assertTimestampReasonable(user.inviteRespondedAt, 'inviteRespondedAt');
+  assertTimestampReasonable(user.roleUpdatedAt, 'roleUpdatedAt');
+  assertTimestampReasonable(user.roleCategoryUpdatedAt, 'roleCategoryUpdatedAt');
+  assertTimestampReasonable(user.createdAt, 'createdAt');
+  assertTimestampReasonable(user.updatedAt, 'updatedAt');
+  assertTimestampReasonable(user.deletedAt, 'deletedAt');
+}
+
+// --- EMAIL VERIFICATION AUTHORITY ---
+//
+// CRITICAL: AppUser.emailVerified is a read-only projection of Firebase Auth.
+// Firebase Auth is the authoritative source for email verification status.
+//
+// INVARIANT ENFORCEMENT:
+// - AppAuthService._resolveAuthenticatedUser() is the ONLY place that syncs emailVerified
+// - AppUserService MUST NEVER update emailVerified arbitrarily
+// - Updates to emailVerified only happen during post-auth resolution
+// - Violation of this will cause authentication bypass or permission escalation
+//
+// This ensures a single source of truth and prevents drift between Firebase and Firestore.
+//
+// Issue #14 - MONITORING & DRIFT DETECTION:
+// - Add periodic job to detect drift: Query AppUsers where emailVerified !== Firebase Auth state
+// - Alert on drift detection (indicates sync failure or manual Firestore manipulation)
+// - Recommended query: Compare Firestore emailVerified vs Firebase Auth user.emailVerified
+// - Repair: Re-run AppAuthService._resolveAuthenticatedUser() for affected users
+// - Prevention: Block direct Firestore writes to emailVerified field (security rules)
+
+export function assertEmailVerifiedNotUpdatedArbitrarily(updates: any): void {
+  if ('emailVerified' in updates && updates.emailVerified !== undefined) {
+    throw new AppUserInvariantViolation(
+      'emailVerified cannot be updated directly; it is a Firebase Auth projection only',
+      { attemptedUpdate: updates },
+    );
+  }
+}
+
+// --- OWNER BOOTSTRAP INVARIANT ---
+//
+// CRITICAL: Only ONE owner can exist in the system.
+// Owner existence must be checked BEFORE any side-effects (Firebase Auth user creation).
+// A second owner bootstrap attempt will corrupt the system.
+
+export function assertOwnerBootstrapNotInProgress(): void {
+  // This is a placeholder for future multi-instance coordination
+  // Currently, check is done synchronously in AppAuthService.ownerSignUp()
+}
+
+// --- OWNER BOOTSTRAP INVARIANT EXTENDED ---
+//
+// CRITICAL: Only ONE owner can exist in the system.
+// Owner existence must be checked BEFORE any side-effects (Firebase Auth user creation).
+// A second owner bootstrap attempt will corrupt the system.
+//
+// SINGLE-INSTANCE GUARANTEE:
+// This check is performed synchronously in AppAuthService.ownerSignUp() before Firebase Auth user creation.
+// If app runs on single instance (typical), this is safe.
+// For distributed apps (multiple instances), you MUST add distributed locking or Firestore transaction.
+
+// --- CONCURRENT SESSION SEMANTICS ---
+//
+// UNDOCUMENTED: Users can have unlimited concurrent sessions (multiple devices/browsers).
+// Each signIn() creates a new Firebase Auth session; all are valid simultaneously.
+// There is NO session revocation cascade; disabling user doesn't revoke existing sessions.
+// This behavior is acceptable for ERP systems but should be documented per deployment.
+
+// --- INACTIVE USER TRACKING ---
+//
+// MISSING: No lastLoginAt or lastActivityAt fields.
+// Future enhancement needed for:
+// - Identifying inactive users (compliance, security)
+// - Auto-disabling users after inactivity period
+// - Audit logs (when was user last active?)
+// Recommended: Add optional createdAt, lastLoginAt, lastActivityAt fields in v1.x

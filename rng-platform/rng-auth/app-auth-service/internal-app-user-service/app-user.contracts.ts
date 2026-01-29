@@ -275,7 +275,13 @@ export interface IAppUserService {
   getUserById(userId: string): Promise<AppUser | null>;
 
   /**
-   * List all users in the system.
+   * @dangerous SOFT-DEPRECATED: List all users in the system.
+   *
+   * Unpaginated query that will eventually hit Firestore limits as the user base grows.
+   * Suitable only for small deployments (< 1000 users).
+   *
+   * RECOMMENDED: Use listUsersPaginated() instead.
+   *
    * @returns Array of users
    * @policy This exposes all users to any authenticated client. This is a policy decision.
    */

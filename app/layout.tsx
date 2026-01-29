@@ -1,7 +1,6 @@
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 
-import { RNGQueryProvider } from '@/rng-query';
 import {
   ColorSchemeScript,
   LoadingOverlay,
@@ -11,8 +10,9 @@ import {
 import { Notifications } from '@mantine/notifications';
 import type { Metadata } from 'next';
 import React, { Suspense } from 'react';
+import { RNGQueryProvider } from '../app-providers/RNGQueryProvider';
+import { SingleInstanceGuard } from '../app-providers/SingleInstanceSafeGuard';
 import { theme } from '../theme';
-import { SingleInstanceGuard } from './SingleInstanceSafeGuard';
 
 export const metadata: Metadata = {
   title: 'RNG Apps',

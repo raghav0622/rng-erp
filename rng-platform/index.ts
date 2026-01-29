@@ -1,1 +1,1 @@
-export * from './modules/index.public';
+export * from './rng-auth/index.public';

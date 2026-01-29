@@ -2,10 +2,7 @@
 // NotOwnerError is used strictly for owner-only operations.
 // All other permission failures must use NotAuthorizedError.
 //
-/**
- * System-defined initial password for invited users.
- * Used only in the service layer, never in invariants.
- */
+
 import { AuthError } from 'firebase/auth';
 
 export type AppAuthErrorCode =
@@ -13,6 +10,7 @@ export type AppAuthErrorCode =
   | 'auth/email-already-in-use'
   | 'auth/weak-password'
   | 'auth/invalid-email'
+  | 'auth/too-many-requests'
   | 'auth/user-disabled'
   | 'auth/session-expired'
   | 'auth/not-authenticated'
@@ -21,6 +19,8 @@ export type AppAuthErrorCode =
   | 'auth/invite-already-accepted'
   | 'auth/invite-revoked'
   | 'auth/owner-already-exists'
+  | 'auth/invariant-violation'
+  | 'auth/infrastructure-error'
   | 'auth/internal';
 
 /**
@@ -69,6 +69,13 @@ export class InvalidEmailError extends AppAuthError {
   }
 }
 
+export class TooManyRequestsError extends AppAuthError {
+  readonly code = 'auth/too-many-requests';
+  constructor(cause?: unknown) {
+    super('Too many requests. Please try again later.', cause);
+  }
+}
+
 export class UserDisabledError extends AppAuthError {
   readonly code = 'auth/user-disabled';
   constructor(cause?: unknown) {
@@ -97,6 +104,42 @@ export class OwnerAlreadyExistsError extends AppAuthError {
   }
 }
 
+/**
+ * Issue #1 fix: Separate error types for different failure semantics.
+ *
+ * AuthInvariantViolationError: Data corruption or system invariant violated.
+ * - Indicates: Firestore data is inconsistent or business rules broken
+ * - Recovery: Force sign-out, manual investigation required
+ * - UI: Show fatal error, contact support
+ * - Monitoring: High-priority alert, investigate data corruption
+ */
+export class AuthInvariantViolationError extends AppAuthError {
+  readonly code = 'auth/invariant-violation';
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+  }
+}
+
+/**
+ * Issue #1 fix: Transient infrastructure failures.
+ *
+ * AuthInfrastructureError: Network, Firestore, or Firebase SDK transient failure.
+ * - Indicates: Temporary connectivity or service unavailability
+ * - Recovery: Retry with backoff, user can try again
+ * - UI: Show "try again" message
+ * - Monitoring: Track error rate, alert if sustained high rate
+ */
+export class AuthInfrastructureError extends AppAuthError {
+  readonly code = 'auth/infrastructure-error';
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+  }
+}
+
+/**
+ * InternalAuthError: Fallback for unexpected/unclassified errors.
+ * Use this only when error doesn't fit other categories.
+ */
 export class InternalAuthError extends AppAuthError {
   readonly code = 'auth/internal';
   constructor(cause?: unknown) {
@@ -106,7 +149,7 @@ export class InternalAuthError extends AppAuthError {
 
 export function mapFirebaseAuthError(error: unknown): AppAuthError {
   if (!error || typeof error !== 'object') {
-    return new InternalAuthError(error);
+    return new AuthInfrastructureError('Unknown Firebase error', error);
   }
 
   const code = (error as AuthError).code;
@@ -125,6 +168,9 @@ export function mapFirebaseAuthError(error: unknown): AppAuthError {
     case 'auth/invalid-email':
       return new InvalidEmailError(error);
 
+    case 'auth/too-many-requests':
+      return new TooManyRequestsError(error);
+
     case 'auth/user-disabled':
       return new UserDisabledError(error);
 
@@ -132,7 +178,7 @@ export function mapFirebaseAuthError(error: unknown): AppAuthError {
       return new SessionExpiredError(error);
 
     default:
-      return new InternalAuthError(error);
+      return new AuthInfrastructureError('Firebase Auth error', error);
   }
 }
 

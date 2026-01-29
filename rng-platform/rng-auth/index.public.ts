@@ -6,12 +6,13 @@
  */
 
 // App Auth Module (primary authentication & user management service)
+import type { IAppAuthService } from './app-auth-service/app-auth.contracts';
+import { appAuthService as appAuthServiceImpl } from './app-auth-service/app-auth.service';
 export type {
   AuthSession,
   AuthSessionState,
-  IAppAuthService,
   UnsubscribeFn,
-} from './app-auth/app-auth.contracts';
+} from './app-auth-service/app-auth.contracts';
 export {
   AppAuthError,
   EmailAlreadyInUseError,
@@ -21,16 +22,21 @@ export {
   InviteAlreadyAcceptedError,
   InviteInvalidError,
   InviteRevokedError,
+  isAppAuthError,
   NotAuthenticatedError,
   NotAuthorizedError,
   NotOwnerError,
   NotSelfError,
   SessionExpiredError,
+  TooManyRequestsError,
   UserDisabledError,
   WeakPasswordError,
-  isAppAuthError,
-} from './app-auth/app-auth.errors';
-export { appAuthService } from './app-auth/app-auth.service';
+} from './app-auth-service/app-auth.errors';
+export type PublicAppAuthService = Omit<
+  IAppAuthService,
+  'listOrphanedLinkedUsers' | 'cleanupOrphanedLinkedUser' | 'getLastAuthStateError'
+>;
+export const appAuthService: PublicAppAuthService = appAuthServiceImpl;
 
 // App User Module (user projection contracts - internal use only via AppAuthService)
 export type {
@@ -41,5 +47,5 @@ export type {
   UpdateAppUserProfile,
   UpdateAppUserRole,
   UpdateAppUserStatus,
-} from './app-user/app-user.contracts';
-export { AppUserInvariantViolation } from './app-user/app-user.invariants';
+} from './app-auth-service/internal-app-user-service/app-user.contracts';
+export { AppUserInvariantViolation } from './app-auth-service/internal-app-user-service/app-user.invariants';

@@ -27,7 +27,7 @@ const OUTPUT_FILE = path.join(ROOT_DIR, 'review_now.ts');
 
 // const INCLUDE_PATHS = ['rng-platform'];
 // const INCLUDE_PATHS = ['rng-repository'];
-const INCLUDE_PATHS = ['rng-platform/modules'];
+const INCLUDE_PATHS = ['rng-platform/rng-auth'];
 
 const EXCLUDE_DIRS = new Set(['dist', 'build', 'node_modules', 'abstract-client-repository']);
 
@@ -63,7 +63,7 @@ const walkDir = (dir: string, collected: string[] = []): string[] => {
 
 const writeHeader = (out: fs.WriteStream) => {
   out.write(`/**
- * rng-firebase manual review file
+ * rng-platform manual review file
  * Purpose: line-by-line senior engineer review
  */
 

@@ -22,7 +22,8 @@
     ".next/dev",
     ".github",
     ".next",
-    "rng-repository"
+    "rng-repository",
+    ".env.local"
   ],
   "files.exclude": {
     "**/.git": true,
@@ -46,6 +47,8 @@
     "vitest.shims.d.ts": true,
     ".next/dev": true,
     ".github": true,
-    ".next": true
+    ".next": true,
+    "rng-repository": true,
+    ".env.local": true
   }
 }
