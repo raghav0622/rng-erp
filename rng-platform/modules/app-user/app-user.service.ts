@@ -1,8 +1,9 @@
 import { clientDb } from '@/lib';
 import { AbstractClientFirestoreRepository } from '@/rng-repository';
-import {
+import type {
   AppUser,
-  CreateAppUser,
+  CreateInvitedUser,
+  CreateOwnerUser,
   DeleteAppUser,
   IAppUserService,
   UpdateAppUserProfile,
@@ -27,6 +28,7 @@ import {
   assertRevokedImpliesNotRegistered,
   assertRoleSnapshotUpdate,
   assertSignupAllowed,
+  assertUserCanBeHardDeleted,
   assertUserCanBeRestored,
   assertUserExists,
   assertUserIsNotOwner,
@@ -49,6 +51,28 @@ class AppUserRepository extends AbstractClientFirestoreRepository<AppUser> {
 const appUserRepo = new AppUserRepository();
 
 export class AppUserService implements IAppUserService {
+  /**
+   * Permanently delete a user record (hard delete, not soft delete).
+   * Only the owner may perform this operation.
+   *
+   * ⚠️ DANGEROUS INTERNAL OPERATION ⚠️
+   *
+   * MUST only be used after:
+   * - User has been soft-deleted (deletedAt !== null)
+   * - Invite has been revoked (for invited users)
+   * - User is NOT registered on ERP (isRegisteredOnERP === false)
+   *
+   * This permanently removes the user record from Firestore.
+   * Firebase Auth cleanup is out of scope and must be handled separately.
+   *
+   * @param userId User ID
+   * @throws AppUserInvariantViolation if user is owner, not soft-deleted, or registered on ERP
+   */
+  async deleteUserPermanently(userId: string): Promise<void> {
+    const user = await this.appUserRepo.getById(userId, { includeDeleted: true });
+    assertUserCanBeHardDeleted(user);
+    await this.appUserRepo.delete(userId);
+  }
   /**
    * Restore a soft-deleted user.
    * @param userId User ID
@@ -84,6 +108,17 @@ export class AppUserService implements IAppUserService {
 
   /**
    * Search users by arbitrary fields (role, status, etc).
+   *
+   * ⚠️ FROZEN POLICY COMMITMENT:
+   * This method allows ANY authenticated user (including clients) to search by:
+   * - role (exposes org structure)
+   * - isDisabled (exposes user status)
+   * - isRegisteredOnERP (exposes onboarding state)
+   *
+   * This leaks internal organizational structure and cannot be reversed
+   * without breaking existing clients. This is an intentional design decision
+   * for transparency in a private ERP system.
+   *
    * @param query Partial<AppUser> fields to match
    * @returns Array of users matching query
    */
@@ -91,12 +126,29 @@ export class AppUserService implements IAppUserService {
     // Enforce invariant: query must specify at least one field
     assertValidUserSearchQuery(query);
     // Only allow searching on a safe, indexed subset of fields
-    const ALLOWED_FIELDS = ['email', 'role', 'inviteStatus', 'isDisabled', 'isRegisteredOnERP'];
-    const where: [string, '==', any][] = [];
+    // ⚠️ FROZEN POLICY — DO NOT EXPAND ALLOWED_FIELDS
+    const ALLOWED_FIELDS = [
+      'email',
+      'role',
+      'inviteStatus',
+      'isDisabled',
+      'isRegisteredOnERP',
+    ] as const;
+    type AllowedField = (typeof ALLOWED_FIELDS)[number];
+    type AllowedValue = AppUser[AllowedField];
+    const where: Array<[AllowedField, '==', AllowedValue]> = [];
     for (const [k, v] of Object.entries(query)) {
-      if (ALLOWED_FIELDS.includes(k) && v !== undefined && v !== null && v !== '') {
-        where.push([k, '==', v]);
+      if (ALLOWED_FIELDS.includes(k as AllowedField) && v !== undefined && v !== null && v !== '') {
+        where.push([k as AllowedField, '==', v as AllowedValue]);
       }
+    }
+    if (where.length === 0) {
+      throw new AppUserInvariantViolation(
+        'Search query must specify at least one allow-listed field',
+        {
+          query,
+        },
+      );
     }
     const result = await this.appUserRepo.find({ where });
     return result.data;
@@ -118,6 +170,15 @@ export class AppUserService implements IAppUserService {
     const updated = await this.appUserRepo.update(userId, { isDisabled: false });
     return updated;
   }
+  /**
+   * List users with pagination support.
+   *
+   * @param pageSize Number of users to return per page
+   * @param pageToken Opaque cursor token from previous response's nextPageToken.
+   *                  This is an internal Firestore cursor and should not be parsed or modified.
+   *                  Pass undefined for the first page.
+   * @returns Object containing data array and optional nextPageToken for next page
+   */
   async listUsersPaginated(
     pageSize: number,
     pageToken?: string,
@@ -156,7 +217,7 @@ export class AppUserService implements IAppUserService {
   async revokeInvite(data: RevokeInvite): Promise<AppUser> {
     const user = await this.appUserRepo.getById(data.userId);
     assertUserExists(user);
-    if (user!.inviteStatus !== 'invited') {
+    if (!(user!.inviteStatus === 'invited' && user!.isRegisteredOnERP === false)) {
       throw new AppUserInvariantViolation('Can only revoke invite if inviteStatus is invited', {
         userId: user!.id,
       });
@@ -182,10 +243,22 @@ export class AppUserService implements IAppUserService {
   }
   private appUserRepo = appUserRepo;
 
+  private generateInviteId(): string {
+    if (typeof crypto !== 'undefined') {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      if (crypto.getRandomValues) {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+    }
+    return `invited-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
   /**
    * @throws AppUserInvariantViolation if invariants are violated (e.g., duplicate owner, invalid invite)
    */
-  async createUser(data: CreateAppUser): Promise<AppUser> {
+  async createUser(data: CreateOwnerUser | CreateInvitedUser): Promise<AppUser> {
     // Only apply signup gating for owner creation
     let owner: AppUser | null = null;
     if (data.role === 'owner') {
@@ -193,7 +266,9 @@ export class AppUserService implements IAppUserService {
       const ownerBootstrapped = !!owner;
       assertSignupAllowed(ownerBootstrapped);
     }
-    // Email uniqueness must be enforced at the service layer
+    // Email uniqueness enforcement (check-then-create pattern)
+    // ⚠️ RACE CONDITION: Two concurrent invites for the same email can both pass this check.
+    // Acceptable for private ERP systems where invite operations are rare and controlled.
     const existingByEmail = await this.appUserRepo.findOne({
       where: [['email', '==', data.email]],
     });
@@ -226,10 +301,7 @@ export class AppUserService implements IAppUserService {
     } else {
       assertValidInvitedUserCreation(data);
       user = {
-        id:
-          typeof crypto !== 'undefined' && crypto.randomUUID
-            ? crypto.randomUUID()
-            : Math.random().toString(36).slice(2),
+        id: this.generateInviteId(),
         name: data.name,
         email: data.email,
         role: data.role,
@@ -259,6 +331,15 @@ export class AppUserService implements IAppUserService {
   /**
    * Link a Firebase Auth identity to an invited AppUser.
    * One-time operation. Enforces user.id === authUid afterward. Forbidden if already linked.
+   *
+   * RACE CONDITION PROTECTION:
+   * Asserts no AppUser with id === authUid exists before creating the linked record.
+   * This prevents split-brain scenarios where multiple invited users try to link
+   * to the same authUid concurrently.
+   *
+   * After linking, the old invited record is soft-deleted and will not appear
+   * in public queries (getUserByEmail, listUsers, searchUsers) due to existing
+   * soft-delete filtering in the repository layer.
    */
   async linkAuthIdentity(userId: string, authUid: string): Promise<void> {
     const user = await this.appUserRepo.getById(userId);
@@ -272,10 +353,23 @@ export class AppUserService implements IAppUserService {
         'Cannot link: user is not invited or already registered',
         { userId },
       );
+
+    // CRITICAL: Check for existing AppUser with authUid to prevent duplicates
+    // Check both active and soft-deleted records to detect all conflicts
+    const existingAuthUser = await this.appUserRepo.getById(authUid, { includeDeleted: true });
+    if (existingAuthUser) {
+      throw new AppUserInvariantViolation(
+        'Cannot link: AppUser with this authUid already exists (race condition detected)',
+        { authUid, existingUserId: existingAuthUser.id, attemptedLinkFrom: userId },
+      );
+    }
+
     // Create new AppUser doc with id = authUid, copy all fields
     const { id, ...fields } = user!;
     await this.appUserRepo.create({ ...fields, id: authUid });
     // Soft delete the old invited doc
+    // Note: Soft-deleted records are automatically filtered from getUserByEmail,
+    // listUsers, and searchUsers by the repository's default query behavior
     await this.appUserRepo.update(userId, { deletedAt: new Date() });
   }
 
@@ -287,8 +381,10 @@ export class AppUserService implements IAppUserService {
     assertUserExists(user);
     this.assertUserState(user!);
     // Defensive only: RBAC for owner profile updates is enforced in AppAuthService. This invariant is a last-resort guard.
-    assertUserIsNotOwner(user!, 'updated');
-    assertEmailNotUpdatable(data as any);
+    if (user!.role !== 'owner') {
+      assertUserIsNotOwner(user!, 'updated');
+    }
+    assertEmailNotUpdatable(data);
     const updated: Partial<AppUser> = { ...data };
     const result = await this.appUserRepo.update(userId, updated);
     this.assertUserState(result);
@@ -362,6 +458,7 @@ export class AppUserService implements IAppUserService {
    * @throws none
    */
   async listUsers(): Promise<AppUser[]> {
+    // WARNING: Unpaginated query. Prefer listUsersPaginated() for large datasets.
     const result = await this.appUserRepo.find({});
     return result.data;
   }

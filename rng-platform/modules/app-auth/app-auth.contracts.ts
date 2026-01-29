@@ -1,48 +1,12 @@
-import type { ListUsersPaginatedResult } from '../app-user/app-user.contracts';
-export type { ListUsersPaginatedResult } from '../app-user/app-user.contracts';
-/**
- * INTERNAL PUBLIC CONTRACT (Extensible)
- *
- * AppAuthService — ERP authentication & user orchestration (email/password only)
- *
- * RESPONSIBILITIES
- * ----------------
- * - Firebase Auth (email/password only)
- * - Session management (client-side)
- * - Owner bootstrap (first and only signup)
- * - Invited-user onboarding
- * - Delegation to AppUserService for all user data mutations
- *
- * NON-RESPONSIBILITIES
- * --------------------
- * - RBAC enforcement (handled in AppAuthService)
- * - Permissions or policy decisions
- * - Trusted devices / sessions
- * - External auth providers
- *
- * CORE RULES
- * ----------
- * - Only ONE public signup is allowed (owner bootstrap)
- * - All other users are invited by the owner
- * - Invited users are created with a SYSTEM-DEFINED initial password
- * - Initial password is NOT secret and MUST be changed by the user
- * - AppUser module is INTERNAL and must not be used directly by apps
- *
- * FIRESTORE-ONLY INVITE MODEL
- * ----------------------
- * - All contracts now reflect Firestore-only invite model.
- *
- * This contract is extensible. Breaking changes require v2.
- * Extension points: add new user fields, search/filter methods, or invariants as needed.
- */
-
-import {
+import type {
   AppUser,
-  CreateAppUser,
+  CreateInvitedUser,
+  ListUsersPaginatedResult,
   UpdateAppUserProfile,
   UpdateAppUserRole,
   UpdateAppUserStatus,
 } from '../app-user/app-user.contracts';
+export type { ListUsersPaginatedResult } from '../app-user/app-user.contracts';
 /**
  * Authenticated ERP session.
  *
@@ -219,7 +183,7 @@ export interface IAppAuthService {
    * - initial password is SYSTEM-DEFINED
    * - user must change password on first login
    */
-  inviteUser(data: CreateAppUser): Promise<AppUser>;
+  inviteUser(data: CreateInvitedUser): Promise<AppUser>;
 
   /**
    * Invited user: accept invite and complete onboarding.
@@ -333,6 +297,19 @@ export interface IAppAuthService {
    * - Any authenticated user
    */
   listUsers(): Promise<AppUser[]>;
+
+  /**
+   * Internal-only repair: list orphaned linked users created by failed invite activation.
+   * Criteria: inviteStatus = 'activated' AND isRegisteredOnERP = false
+   * Owner only.
+   */
+  listOrphanedLinkedUsers(): Promise<AppUser[]>;
+
+  /**
+   * Internal-only repair: remove orphaned linked user.
+   * Owner only.
+   */
+  cleanupOrphanedLinkedUser(userId: string): Promise<void>;
 
   // ---------------------------------------------------------------------------
   // SYSTEM STATE

@@ -19,7 +19,10 @@
     "tsconfig.tsbuildinfo",
     "vitest.config.ts",
     "vitest.shims.d.ts",
-    ".next/dev"
+    ".next/dev",
+    ".github",
+    ".next",
+    "rng-repository"
   ],
   "files.exclude": {
     "**/.git": true,
@@ -41,6 +44,8 @@
     "tsconfig.tsbuildinfo": true,
     "vitest.config.ts": true,
     "vitest.shims.d.ts": true,
-    ".next/dev": true
+    ".next/dev": true,
+    ".github": true,
+    ".next": true
   }
 }

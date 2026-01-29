@@ -1,3 +1,37 @@
+/**
+ * Assert that a user can be hard deleted (permanent delete).
+ * Throws if user is owner, does not exist, is not soft-deleted, or is registered on ERP.
+ *
+ * CRITICAL SAFETY INVARIANT:
+ * Hard delete is only safe after:
+ * 1. User is soft-deleted (deletedAt !== null)
+ * 2. User is NOT registered on ERP (isRegisteredOnERP === false)
+ * 3. User is NOT owner
+ *
+ * This prevents accidental data loss for active or onboarded users.
+ */
+export function assertUserCanBeHardDeleted(user: AppUser | null): void {
+  if (!user) {
+    throw new AppUserInvariantViolation('User must exist to be hard deleted');
+  }
+  if (user.role === 'owner') {
+    throw new AppUserInvariantViolation('Owner account cannot be hard deleted', {
+      userId: user.id,
+    });
+  }
+  if (!user.deletedAt) {
+    throw new AppUserInvariantViolation(
+      'User must be soft-deleted before hard delete (deletedAt must not be null)',
+      { userId: user.id },
+    );
+  }
+  if (user.isRegisteredOnERP) {
+    throw new AppUserInvariantViolation(
+      'Cannot hard delete registered users (isRegisteredOnERP must be false)',
+      { userId: user.id },
+    );
+  }
+}
 // =============================
 // CREATION INVARIANTS (SPLIT)
 // =============================
@@ -113,7 +147,11 @@ export function assertOwnerRoleImmutable(prev: AppUser, nextRole: string): void 
 /**
  * Assert that updating role or roleCategory also updates the corresponding timestamp, and vice versa.
  */
-export function assertRoleSnapshotUpdate(user: AppUser, prev: AppUser, update: any): void {
+export function assertRoleSnapshotUpdate(
+  user: AppUser,
+  prev: AppUser,
+  update: { role?: string; roleCategory?: string },
+): void {
   if (user.role !== prev.role && user.roleUpdatedAt === prev.roleUpdatedAt) {
     throw new AppUserInvariantViolation('Updating role must update roleUpdatedAt', { id: user.id });
   }
@@ -201,7 +239,7 @@ import { AppUser, AppUserInviteStatus } from './app-user.contracts';
 export class AppUserInvariantViolation extends Error {
   constructor(
     public invariant: string,
-    public context?: any,
+    public context?: Record<string, unknown>,
   ) {
     super(
       `AppUserInvariantViolation: ${invariant}${context ? ' | ' + JSON.stringify(context) : ''}`,
@@ -385,7 +423,10 @@ export function assertOwnerInviteStatusActivated(user: AppUser): void {
 /**
  * Assert that a user exists (for update/delete operations).
  */
-export function assertUserExists(user: AppUser | null, context: any = {}): void {
+export function assertUserExists(
+  user: AppUser | null,
+  context: Record<string, unknown> = {},
+): void {
   if (!user) {
     throw new AppUserInvariantViolation('User must exist', context);
   }

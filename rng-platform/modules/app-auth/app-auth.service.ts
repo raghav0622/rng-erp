@@ -1,5 +1,3 @@
-// Removed misplaced acceptInvite method(s) from file top
-// import { globalLogger } from '@/lib/logger';
 import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
@@ -11,10 +9,12 @@ import {
   reauthenticateWithCredential,
   signInWithEmailAndPassword,
   updatePassword,
+  type User as FirebaseUser,
 } from 'firebase/auth';
-import {
+import type {
   AppUser,
-  CreateAppUser,
+  CreateInvitedUser,
+  CreateOwnerUser,
   ListUsersPaginatedResult,
   UpdateAppUserProfile,
   UpdateAppUserRole,
@@ -30,6 +30,7 @@ import { AppUserService } from '../app-user/app-user.service';
 import { AuthSession, IAppAuthService, UnsubscribeFn } from './app-auth.contracts';
 import {
   AppAuthError,
+  InternalAuthError,
   InviteAlreadyAcceptedError,
   InviteInvalidError,
   InviteRevokedError,
@@ -42,25 +43,45 @@ import {
 } from './app-auth.errors';
 import { assertAuthenticatedUser, assertNoOrphanAuthUser } from './app-auth.invariants';
 
+/**
+ * Helper to standardize error handling across service methods.
+ * Preserves AppAuthError and AppUserInvariantViolation, maps all other errors.
+ */
+function rethrowOrMapAuthError(err: unknown): never {
+  if (err instanceof AppAuthError || err instanceof AppUserInvariantViolation) {
+    throw err;
+  }
+  throw mapFirebaseAuthError(err);
+}
+
 class AppAuthService implements IAppAuthService {
   private session: AuthSession = { state: 'unknown', user: null };
   private listeners: Array<(session: AuthSession) => void> = [];
   private appUserService = new AppUserService();
   private auth = getAuth();
-  private authOperationDepth = 0;
+  private authMutationInProgress = false;
+  private authMutationPromise: Promise<void> | null = null;
   private unsubscribeAuthState: (() => void) | null = null;
 
   /**
    * Helper to wrap all Firebase Auth mutating operations.
-   * Increments authOperationDepth before, decrements after.
-   * Ignores auth state events during operation.
+   * Uses a boolean lock to ignore auth state events during mutation.
    */
   private async withAuthOperation<T>(fn: () => Promise<T>): Promise<T> {
-    this.authOperationDepth++;
+    if (this.authMutationInProgress && this.authMutationPromise) {
+      await this.authMutationPromise;
+    }
+    this.authMutationInProgress = true;
+    const operation = (async () => fn())();
+    this.authMutationPromise = operation.then(
+      () => undefined,
+      () => undefined,
+    );
     try {
-      return await fn();
+      return await operation;
     } finally {
-      this.authOperationDepth--;
+      this.authMutationInProgress = false;
+      this.authMutationPromise = null;
     }
   }
 
@@ -89,52 +110,40 @@ class AppAuthService implements IAppAuthService {
     if (role === 'manager' || role === 'employee') {
       if (id !== userId) throw new NotSelfError();
     } else {
-      throw new NotAuthorizedError();
+      throw new InternalAuthError({ role });
     }
-  }
-
-  private requireNotClient() {
-    assertAuthenticatedUser(this.session.user);
-    if (this.session.user.role === 'client') throw new NotAuthorizedError();
   }
 
   async restoreUser(userId: string): Promise<AppUser> {
     this.requireOwner();
     try {
-      const user = await this.appUserService.restoreUser(userId);
-      return user;
+      return await this.appUserService.restoreUser(userId);
     } catch (err) {
-      if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
   async searchUsers(query: Partial<AppUser>): Promise<AppUser[]> {
     assertAuthenticatedUser(this.session.user);
     try {
-      const users = await this.appUserService.searchUsers(query);
-      return users;
+      return await this.appUserService.searchUsers(query);
     } catch (err) {
-      if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
   async reactivateUser(userId: string): Promise<AppUser> {
     this.requireOwner();
     try {
-      const user = await this.appUserService.reactivateUser(userId);
-      return user;
+      return await this.appUserService.reactivateUser(userId);
     } catch (err) {
-      if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
   /**
    * Attempts to sync emailVerified from Firebase Auth to Firestore.
    * Idempotent and safe to call repeatedly, but not transactional or retried.
-   * WARNING: This is a client-side hack. For true reliability, move to server-side logic.
    */
 
   async signOut(): Promise<void> {
@@ -173,12 +182,12 @@ class AppAuthService implements IAppAuthService {
   }
 
   /**
-   * Canonical handler for Firebase Auth state changes. Used by the main listener and invite hack.
+   * Canonical handler for Firebase Auth state changes. Used by the main listener and invite flow.
    * Never duplicate or inline this logic. If you change auth/session logic, update ONLY this method.
    */
-  private handleAuthStateChanged = async (firebaseUser: any) => {
+  private handleAuthStateChanged = async (firebaseUser: FirebaseUser | null) => {
     // Ignore auth state changes during mutating operations
-    if (this.authOperationDepth > 0) return;
+    if (this.authMutationInProgress) return;
     try {
       if (!firebaseUser) {
         this.setSession({ state: 'unauthenticated', user: null });
@@ -187,19 +196,26 @@ class AppAuthService implements IAppAuthService {
       let appUser = await this.appUserService.getUserById(firebaseUser.uid);
       assertNoOrphanAuthUser(!!firebaseUser, appUser);
       if (!appUser)
-        throw new Error('Invariant: appUser must not be null after assertNoOrphanAuthUser');
+        throw new InternalAuthError(
+          'Invariant: appUser must not be null after assertNoOrphanAuthUser',
+        );
+      const effectiveEmailVerified = appUser.isRegisteredOnERP
+        ? firebaseUser.emailVerified
+        : appUser.emailVerified;
       // Always treat Firebase Auth as authoritative for emailVerified
-      // If Firestore projection is out of sync, persist the update (client-side hack, phase-1 safe)
-      if (appUser.emailVerified !== firebaseUser.emailVerified) {
-        await this.appUserService.updateEmailVerified(appUser.id, firebaseUser.emailVerified);
+      // If Firestore projection is out of sync, persist the update
+      if (appUser.isRegisteredOnERP && appUser.emailVerified !== effectiveEmailVerified) {
+        await this.appUserService.updateEmailVerified(appUser.id, effectiveEmailVerified);
         // Optionally reload appUser, but not strictly required for session projection
-        appUser = { ...appUser, emailVerified: firebaseUser.emailVerified };
+        appUser = { ...appUser, emailVerified: effectiveEmailVerified };
       }
       this.setSession({
         state: 'authenticated',
-        user: { ...appUser, emailVerified: firebaseUser.emailVerified },
+        user: { ...appUser, emailVerified: effectiveEmailVerified },
       });
-    } catch {
+    } catch (err) {
+      // CRITICAL: Auth state listener must NEVER throw to prevent unhandled promise rejections.
+      // All errors (including invariant violations) are handled by signing out and resetting session.
       await firebaseSignOut(this.auth);
       this.setSession({ state: 'unauthenticated', user: null });
     }
@@ -210,7 +226,10 @@ class AppAuthService implements IAppAuthService {
     for (const cb of this.listeners) {
       try {
         cb({ ...session });
-      } catch {}
+      } catch {
+        // Silent: Listener errors must not break session state updates.
+        // Consumers are responsible for their own error handling.
+      }
     }
   }
 
@@ -220,7 +239,7 @@ class AppAuthService implements IAppAuthService {
 
   onAuthStateChanged(callback: (session: AuthSession) => void): UnsubscribeFn {
     this.listeners.push(callback);
-    callback(this.session);
+    callback({ ...this.session });
     return () => {
       const idx = this.listeners.indexOf(callback);
       if (idx >= 0) this.listeners.splice(idx, 1);
@@ -244,7 +263,7 @@ class AppAuthService implements IAppAuthService {
             email: data.email,
             role: 'owner',
             photoUrl: data.photoUrl,
-          });
+          } as CreateOwnerUser);
           this.setSession({ state: 'authenticated', user });
           return this.session;
         } catch (err) {
@@ -267,7 +286,9 @@ class AppAuthService implements IAppAuthService {
         const appUser = await this.appUserService.getUserById(cred.user.uid);
         assertNoOrphanAuthUser(!!cred.user, appUser);
         if (!appUser)
-          throw new Error('Invariant: appUser must not be null after assertNoOrphanAuthUser');
+          throw new InternalAuthError(
+            'Invariant: appUser must not be null after assertNoOrphanAuthUser',
+          );
         if (appUser.isDisabled) {
           await firebaseSignOut(this.auth);
           this.setSession({ state: 'unauthenticated', user: null });
@@ -314,9 +335,11 @@ class AppAuthService implements IAppAuthService {
   }
 
   async updateOwnerProfile(data: { name?: string; photoUrl?: string }): Promise<AppUser> {
-    assertAuthenticatedUser(this.session.user);
+    this.requireOwner();
+    const user = this.session.user;
+    assertAuthenticatedUser(user);
     try {
-      const updated = await this.appUserService.updateUserProfile(this.session.user.id, data);
+      const updated = await this.appUserService.updateUserProfile(user.id, data);
       this.setSession({ state: 'authenticated', user: updated });
       return updated;
     } catch (err) {
@@ -330,26 +353,45 @@ class AppAuthService implements IAppAuthService {
    * Owner-only: Create a Firestore-only invite (AppUser with inviteStatus = 'invited').
    * Does NOT create a Firebase Auth user. Enforces email uniqueness at AppUser layer.
    */
-  async inviteUser(data: CreateAppUser): Promise<AppUser> {
+  async inviteUser(data: CreateInvitedUser): Promise<AppUser> {
     this.requireOwner();
     try {
-      // No authUid at invite time; only email, name, role, etc.
-      const { authUid, ...inviteData } = data;
-      const user = await this.appUserService.createUser({ ...inviteData, authUid: '' });
+      const user = await this.appUserService.createUser(data);
       return user;
     } catch (err) {
       if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
       throw mapFirebaseAuthError(err);
     }
   }
-  // Use assertInviteStatusValid and assertUserCanBeActivated from app-user.invariants
   /**
    * Signup with invite: creates Firebase Auth user ONLY if a valid invite exists.
+   *
+   * Flow:
    * 1. Checks AppUser by email, asserts inviteStatus === 'invited', not revoked/disabled
    * 2. Creates Firebase Auth user
-   * 3. Links authUid to AppUser
+   * 3. Links authUid to AppUser (creates new doc with authUid, soft-deletes old invite doc)
    * 4. Activates invite (inviteStatus → activated, isRegisteredOnERP → true)
-   * Fails if any invariant is violated.
+   *
+   * ⚠️ NON-ATOMIC OPERATION:
+   * This operation updates Firestore and Firebase Auth sequentially.
+   * If any step fails, best-effort rollback is attempted (Auth user deletion).
+   * However, network failures or race conditions may leave partial state:
+   * - Orphaned Firebase Auth user without AppUser
+   * - Soft-deleted invite doc without linked Auth user
+   *   * ⚠️ ASYMMETRIC ROLLBACK:
+   * If activateInvitedUser fails AFTER linkAuthIdentity succeeds:
+   * - Firebase Auth user is deleted (rolled back)
+   * - New AppUser doc (with id = authUid) remains in Firestore
+   * - Old invited doc remains soft-deleted
+   * This orphaned AppUser requires manual owner cleanup.
+   * This is an accepted limitation of client-side operations.
+   *    * CLIENT-SIDE LIMITATION:
+   * This is acceptable for client-side operations given:
+   *
+   * @throws InviteInvalidError if no invite exists or invite is invalid
+   * @throws InviteAlreadyAcceptedError if invite already accepted
+   * @throws InviteRevokedError if invite was revoked
+   * @throws NotAuthorizedError if user is disabled
    */
   async signupWithInvite(email: string, password: string): Promise<AuthSession> {
     // Step 1: Check for invited AppUser
@@ -360,9 +402,10 @@ class AppAuthService implements IAppAuthService {
       throw new InviteInvalidError();
     }
     if (!invitedUser) throw new InviteInvalidError();
-    if (invitedUser.inviteStatus !== 'invited') throw new InviteAlreadyAcceptedError();
+    if (invitedUser.inviteStatus === 'revoked') throw new InviteRevokedError();
+    if (invitedUser.inviteStatus === 'activated') throw new InviteAlreadyAcceptedError();
+    if (invitedUser.inviteStatus !== 'invited') throw new InviteInvalidError();
     if (invitedUser.isDisabled) throw new NotAuthorizedError();
-    if (String(invitedUser.inviteStatus) === 'revoked') throw new InviteRevokedError();
 
     // Step 2: Create Firebase Auth user
     let cred;
@@ -389,11 +432,14 @@ class AppAuthService implements IAppAuthService {
     }
 
     // Step 4: Link authUid to AppUser
+    // Note: linkAuthIdentity includes race condition protection (duplicate authUid check)
     try {
       await this.appUserService.linkAuthIdentity(freshUser.id, cred.user.uid);
       // Enforce linking invariant immediately after linking
       const linkedUser = await this.appUserService.getUserById(cred.user.uid);
       assertUserIdMatchesAuthUid(linkedUser!, cred.user.uid);
+      // Immediately disable the linked user to avoid zombie accounts on failure
+      await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
     } catch (err) {
       // Rollback: delete Auth user if linking fails
       await cred.user.delete();
@@ -404,13 +450,15 @@ class AppAuthService implements IAppAuthService {
     let activatedUser: AppUser;
     try {
       activatedUser = await this.appUserService.activateInvitedUser(cred.user.uid);
+      // Re-enable user only after successful activation
+      activatedUser = await this.appUserService.updateUserStatus(cred.user.uid, {
+        isDisabled: false,
+      });
     } catch (err) {
       // Rollback: delete Auth user if activation fails
       await cred.user.delete();
       throw mapFirebaseAuthError(err);
     }
-
-    // NOTE: This operation is not atomic. Firestore and Firebase Auth are updated in sequence. Rollbacks are best-effort and race conditions are possible, but this is acceptable given system constraints.
 
     // Set session
     this.setSession({ state: 'authenticated', user: activatedUser });
@@ -445,13 +493,12 @@ class AppAuthService implements IAppAuthService {
       if ('photoUrl' in data) allowed.photoUrl = data.photoUrl;
       data = allowed;
     } else {
-      this.requireNotClient();
+      throw new InternalAuthError({ role: this.session.user.role });
     }
     try {
       return await this.appUserService.updateUserProfile(userId, data);
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
@@ -460,8 +507,7 @@ class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.updateUserRole(userId, data);
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
@@ -470,8 +516,7 @@ class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.updateUserStatus(userId, data);
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
@@ -480,8 +525,7 @@ class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.deleteUser({ userId });
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
@@ -510,6 +554,29 @@ class AppAuthService implements IAppAuthService {
     } catch (err) {
       throw mapFirebaseAuthError(err);
     }
+  }
+
+  async listOrphanedLinkedUsers(): Promise<AppUser[]> {
+    this.requireOwner();
+    try {
+      return await this.appUserService.searchUsers({
+        inviteStatus: 'activated',
+        isRegisteredOnERP: false,
+      });
+    } catch (err) {
+      rethrowOrMapAuthError(err);
+    }
+  }
+
+  async cleanupOrphanedLinkedUser(userId: string): Promise<void> {
+    this.requireOwner();
+    const user = await this.appUserService.getUserById(userId);
+    if (!user) throw new InviteInvalidError();
+    if (!(user.inviteStatus === 'activated' && user.isRegisteredOnERP === false)) {
+      throw new InviteInvalidError();
+    }
+    await this.appUserService.deleteUser({ userId });
+    await this.appUserService.deleteUserPermanently(userId);
   }
 
   async isOwnerBootstrapped(): Promise<boolean> {
@@ -545,14 +612,7 @@ class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.resendInvite({ userId });
     } catch (err) {
-      if (
-        err instanceof NotOwnerError ||
-        err instanceof NotSelfError ||
-        err instanceof NotAuthorizedError ||
-        err instanceof AppAuthError
-      )
-        throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
@@ -565,14 +625,7 @@ class AppAuthService implements IAppAuthService {
     try {
       return await this.appUserService.revokeInvite({ userId });
     } catch (err) {
-      if (
-        err instanceof NotOwnerError ||
-        err instanceof NotSelfError ||
-        err instanceof NotAuthorizedError ||
-        err instanceof AppAuthError
-      )
-        throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 
@@ -593,9 +646,26 @@ class AppAuthService implements IAppAuthService {
    * Accept an invite for the currently authenticated user.
    * Transitions inviteStatus to 'activated' and sets isRegisteredOnERP = true.
    * Returns the authenticated session.
+   *
+   * ⚠️ IMPORTANT USAGE CONSTRAINT:
+   *
+   * acceptInvite MUST NOT be used for signup flows.
+   * - Signup (creating Firebase Auth user) MUST go through signupWithInvite()
+   * - acceptInvite() is ONLY for post-signup invite activation
+   * - Caller MUST already have an authenticated Firebase session
+   * - User MUST already be registered on ERP (isRegisteredOnERP === true)
+   *
+   * If isRegisteredOnERP === false, this indicates the user has not completed
+   * signup and must use signupWithInvite() instead.
    */
   async acceptInvite(): Promise<AuthSession> {
     assertAuthenticatedUser(this.session.user);
+
+    // Hard invariant: acceptInvite cannot be used for signup
+    if (this.session.user!.isRegisteredOnERP === false) {
+      throw new InviteInvalidError();
+    }
+
     assertInviteStatusValid(this.session.user!.inviteStatus);
     assertUserCanBeActivated(this.session.user!);
     try {
@@ -603,8 +673,7 @@ class AppAuthService implements IAppAuthService {
       this.setSession({ state: 'authenticated', user });
       return this.session;
     } catch (err) {
-      if (err instanceof AppAuthError) throw err;
-      throw mapFirebaseAuthError(err);
+      rethrowOrMapAuthError(err);
     }
   }
 }

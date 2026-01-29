@@ -93,15 +93,33 @@ export interface AppUser extends BaseEntity {
 /**
  * Payload for creating a new user (by owner/admin only).
  */
-export interface CreateAppUser {
+/**
+ * Payload for creating an invited user (no authUid, Firestore-only invite).
+ */
+export interface CreateInvitedUser {
+  /** Full name. */
+  name: string;
+  /** Email address. */
+  email: string;
+  /** Role to assign. */
+  role: Exclude<AppUserRole, 'owner'>;
+  /** Optional role category. */
+  roleCategory?: string;
+  /** Optional profile photo URL. */
+  photoUrl?: string;
+}
+/**
+ * Payload for creating the owner user (requires authUid, for bootstrap only).
+ */
+export interface CreateOwnerUser {
   /** Auth provider UID (required for linking to auth record). */
   authUid: string;
   /** Full name. */
   name: string;
   /** Email address. */
   email: string;
-  /** Role to assign. */
-  role: AppUserRole;
+  /** Must be 'owner'. */
+  role: 'owner';
   /** Optional role category. */
   roleCategory?: string;
   /** Optional profile photo URL. */
@@ -217,7 +235,7 @@ export interface IAppUserService {
    * @param data User creation payload
    * @returns The created user
    */
-  createUser(data: CreateAppUser): Promise<AppUser>;
+  createUser(data: CreateOwnerUser | CreateInvitedUser): Promise<AppUser>;
 
   /**
    * Update a user's profile fields.
@@ -259,7 +277,7 @@ export interface IAppUserService {
   /**
    * List all users in the system.
    * @returns Array of users
-   * @policy This exposes all users to any authenticated client. This is a policy decision and may be restricted in future.
+   * @policy This exposes all users to any authenticated client. This is a policy decision.
    */
   listUsers(): Promise<AppUser[]>;
 
@@ -288,4 +306,11 @@ export interface IAppUserService {
    * @param pageToken Opaque token for next page
    */
   listUsersPaginated(pageSize: number, pageToken?: string): Promise<ListUsersPaginatedResult>;
+
+  /**
+   * Permanently delete a user record (hard delete, not soft delete).
+   * Only the owner may perform this operation.
+   * @param userId User ID
+   */
+  deleteUserPermanently(userId: string): Promise<void>;
 }
