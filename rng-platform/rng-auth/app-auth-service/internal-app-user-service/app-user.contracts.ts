@@ -4,95 +4,46 @@ export interface ListUsersPaginatedResult {
 }
 
 /**
- * INTERNAL PUBLIC CONTRACT (Extensible)
- *
- * Auth-owned Firestore user projection.
- * - Not authoritative for permissions; see RBAC
- * - Soft-delete only
- * - No credentials
- * - RBAC is the source of truth
- *
- * This contract is extensible. Breaking changes require v2.
- * All invariants described here are strictly enforced at runtime in the service layer.
- *
- * Extension points: add new user fields, search/filter methods, or invariants as needed.
+ * AppUser contract (client-side projection). See AUTH_MODEL.md.
  */
 
 import { BaseEntity } from '@/rng-repository';
 
-/**
- * Supported user roles in the ERP system.
- * - owner: The initial superuser, has all permissions. Only one allowed.
- * - manager: Elevated permissions, can manage users and data.
- * - employee: Standard user, limited permissions.
- * - client: External or limited-access user.
- */
 export type AppUserRole = 'owner' | 'manager' | 'employee' | 'client';
 
 export type AppUserInviteStatus = 'invited' | 'activated' | 'revoked';
 /**
- * Represents an application user in the ERP system.
- *
- * Note:
- * - AppUser is always a projection of the corresponding Firebase Auth user.
- * - Email is mirrored from Auth and is NOT updatable via AppUserService.
- * - Role and roleCategory are cached for UI; RBAC is the source of truth.
- * - All invite and owner invariants are enforced at runtime.
-/**
- * Payload for resending an invite to a user.
+ * Resend invite payload.
  */
 export interface ResendInvite {
   userId: string;
 }
 
 /**
- * Payload for revoking an invite.
+ * Revoke invite payload.
  */
 export interface RevokeInvite {
   userId: string;
 }
-export interface AppUser extends BaseEntity {
-  /** Full name of the user. */
-  name: string;
-  /**
-   * Email address (mirrored from auth provider, not user-editable).
-   * This is intentionally exposed for user management and notifications.
-   */
-  email: string;
-  /**
-   * Cached role for UI display. RBAC is the source of truth for permissions.
-   * Only the role field is exposed; permissions are enforced elsewhere.
-   */
-  role: AppUserRole;
-  /** Optional category for the user's role (e.g., department). */
-  roleCategory?: string;
-  /** Last time the role was updated. */
-  roleUpdatedAt: Date;
-  /** Last time the role category was updated. */
-  roleCategoryUpdatedAt?: Date;
-  /** Optional profile photo URL. */
-  photoUrl?: string;
-  /** Whether the user's email is verified. */
-  emailVerified: boolean;
-  /** Whether the user is disabled (cannot sign in). */
-  isDisabled: boolean;
-
-  /**
-   * Invite status for onboarding flows. Only exposed for invite lifecycle management.
-   */
-  inviteStatus: AppUserInviteStatus;
-  /** Timestamp when invite was sent. */
-  inviteSentAt?: Date;
-  /** Timestamp when invite was responded to (activated). */
-  inviteRespondedAt?: Date;
-
-  /** True if the user has completed ERP registration. */
-  isRegisteredOnERP: boolean;
-}
 
 /**
- * Payload for creating a new user (by owner/admin only).
+ * AppUser projection (Firestore). See AUTH_MODEL.md.
  */
+export interface AppUser extends BaseEntity {
+  name: string;
+  email: string;
+  role: AppUserRole;
+  roleCategory?: string;
+  roleUpdatedAt: Date;
+  roleCategoryUpdatedAt?: Date;
+  photoUrl?: string;
+  emailVerified: boolean;
+  isDisabled: boolean;
+  inviteStatus: AppUserInviteStatus;
+  inviteSentAt?: Date;
+  inviteRespondedAt?: Date;
+  isRegisteredOnERP: boolean;
+}
 /**
  * Payload for creating an invited user (no authUid, Firestore-only invite).
  */
@@ -163,38 +114,7 @@ export interface UpdateAppUserStatus {
 }
 
 /**
- * Service interface for managing application users.
- *
- * Notes:
- * - Only the owner can create new users after bootstrap.
- * - Public signup is disabled after the first owner is created.
- * - No bulk invites; one user, one role.
- * All invariants described in this interface are enforced at runtime in the implementation.
- *
- * ---
- *
- * USAGE EXAMPLES:
- *
- * // Create a new user (owner only)
- * await appUserService.createUser({ authUid, name, email, role: 'employee' });
- *
- * // Update user profile
- * await appUserService.updateUserProfile(userId, { name: 'New Name' });
- *
- * // Disable a user
- * await appUserService.updateUserStatus(userId, { isDisabled: true });
- *
- * // List users (with pagination)
- * const { data, nextPageToken } = await appUserService.listUsers({ pageSize: 20 });
- *
- * // Resend invite
- * await appUserService.resendInvite({ userId });
- *
- * // Revoke invite
- * await appUserService.revokeInvite({ userId });
- *
- * // Get user by email
- * const user = await appUserService.getUserByEmail('user@example.com');
+ * AppUser service contract. See README.internal.md and INVITE_FLOW.md.
  */
 export interface IAppUserService {
   /**

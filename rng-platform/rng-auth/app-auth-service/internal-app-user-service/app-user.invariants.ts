@@ -1,18 +1,5 @@
 /**
- * CANONICAL EMAIL IDENTITY INVARIANT
- *
- * Enforces: Exactly one active (non-soft-deleted) AppUser per email.
- *
- * This is the single enforcement point for email uniqueness across all flows:
- * - createUser (invites, owner bootstrap)
- * - signupWithInvite
- * - getUserByEmail and related queries
- *
- * Non-atomic check-then-create is intentional (documented trade-off).
- * This invariant documents what MUST be true after each operation.
- *
- * @internal
- * @throws AppUserInvariantViolation if multiple active AppUsers share the same email
+ * Email uniqueness invariant (client-side). See CLIENT_SIDE_LIMITATIONS.md.
  */
 export function assertEmailUniqueAndActive(users: AppUser[], email: string): void {
   const activeUsers = users.filter((user) => !user.deletedAt);
@@ -25,20 +12,7 @@ export function assertEmailUniqueAndActive(users: AppUser[], email: string): voi
 }
 
 /**
- * CANONICAL AUTH IDENTITY LINKING INVARIANT
- *
- * Enforces: Each Firebase Auth user (authUid) links to exactly one active AppUser.
- * Links are one-time, immutable, and irreversible.
- *
- * This is the single enforcement point for auth identity uniqueness:
- * - linkAuthIdentity (primary linking)
- * - signupWithInvite (via linkAuthIdentity)
- * - Any future auth linking operations
- *
- * Violations indicate split-brain state (multiple AppUsers for one authUid).
- *
- * @internal
- * @throws AppUserInvariantViolation if user is already linked to a different authUid
+ * Auth identity linking invariant. See AUTH_MODEL.md and CLIENT_SIDE_LIMITATIONS.md.
  */
 export function assertAuthIdentityNotLinked(user: AppUser, authUid: string): void {
   if (user.id === authUid) {
@@ -57,13 +31,7 @@ export function assertAuthIdentityNotLinked(user: AppUser, authUid: string): voi
 }
 
 /**
- * CANONICAL AUTH UID UNIQUENESS INVARIANT
- *
- * Enforces: A Firebase authUid can only belong to one AppUser.
- * Use alongside assertAuthIdentityNotLinked.
- *
- * @internal
- * @throws AppUserInvariantViolation if authUid is already linked to a different AppUser
+ * AuthUid uniqueness invariant. See AUTH_MODEL.md.
  */
 export function assertAuthUidNotLinked(
   existingAuthUser: AppUser | null,
@@ -79,16 +47,7 @@ export function assertAuthUidNotLinked(
 }
 
 /**
- * Assert that a user can be hard deleted (permanent delete).
- * Throws if user is owner, does not exist, is not soft-deleted, or is registered on ERP.
- *
- * CRITICAL SAFETY INVARIANT:
- * Hard delete is only safe after:
- * 1. User is soft-deleted (deletedAt !== null)
- * 2. User is NOT registered on ERP (isRegisteredOnERP === false)
- * 3. User is NOT owner
- *
- * This prevents accidental data loss for active or onboarded users.
+ * Hard delete safety invariant. See README.internal.md.
  */
 export function assertUserCanBeHardDeleted(user: AppUser | null): void {
   if (!user) {

@@ -4,16 +4,21 @@ import {
   EmailAuthProvider,
   confirmPasswordReset as firebaseConfirmPasswordReset,
   sendPasswordResetEmail as firebaseSendPasswordResetEmail,
-  sendEmailVerification,
   signOut as firebaseSignOut,
   getAuth,
   onAuthStateChanged,
   reauthenticateWithCredential,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   updatePassword,
   type User as FirebaseUser,
 } from 'firebase/auth';
-import { AuthSession, IAppAuthService, UnsubscribeFn } from './app-auth.contracts';
+import {
+  AuthSession,
+  AuthSessionState,
+  IAppAuthService,
+  UnsubscribeFn,
+} from './app-auth.contracts';
 import {
   AppAuthError,
   AuthInfrastructureError,
@@ -27,6 +32,8 @@ import {
   NotAuthorizedError,
   NotOwnerError,
   NotSelfError,
+  OwnerAlreadyExistsError,
+  TooManyRequestsError,
   UserDisabledError,
 } from './app-auth.errors';
 import { assertAuthenticatedUser, assertNoOrphanAuthUser } from './app-auth.invariants';
@@ -48,56 +55,28 @@ import {
 } from './internal-app-user-service/app-user.invariants';
 import { AppUserService } from './internal-app-user-service/app-user.service';
 
-/**\n * Normalize email: lowercase and trim. Single source of truth.\n * Issue #4 fix: Centralize email normalization to prevent inconsistencies.\n * @internal\n */\nfunction normalizeEmail(email: string): string {\n  return email.toLowerCase().trim();\n}\n\n/**\n * Helper to standardize error handling across service methods.\n * Preserves AppAuthError (including new semantic types) and AppUserInvariantViolation, maps all other errors.\n * Issue #1: Now handles AuthInvariantViolationError and AuthInfrastructureError.\n */\nfunction rethrowOrMapAuthError(err: unknown): never {\n  if (err instanceof AppAuthError || err instanceof AppUserInvariantViolation) {\n    throw err;\n  }\n  throw mapFirebaseAuthError(err);\n}
+/**
+ * Normalize email: lowercase and trim. Single source of truth.
+ * Issue #4 fix: Centralize email normalization to prevent inconsistencies.
+ * @internal
+ */
+function normalizeEmail(email: string): string {
+  return email.toLowerCase().trim();
+}
 
-// =============================================================================
-// FROZEN DESIGN DECISIONS - EXPLICIT EDGE CASE DOCUMENTATION
-// =============================================================================
-// The following behaviors are by design and frozen for v1. They are NOT bugs.
-//
-// 1. DISABLED USERS KEEP EXISTING FIREBASE SESSIONS
-//    - When user.isDisabled = true, rejection happens post-auth only
-//    - Existing Firebase Auth sessions are NOT revoked
-//    - User can keep using existing session until next auth resolution
-//    - Acceptable for ERP systems (no real-time revocation requirement)
-//
-// 2. MULTIPLE CONCURRENT SESSIONS
-//    - Users can have unlimited concurrent sessions (multiple devices/browsers)
-//    - Each signIn() creates a new Firebase Auth session
-//    - No session revocation cascade when user is disabled/deleted
-//    - This is explicitly allowed by design
-//
-// 3. OWNER BOOTSTRAP RACE (SINGLE-INSTANCE ASSUMPTION)
-//    - Owner bootstrap check is non-atomic (client-side limitation)
-//    - Distributed lock required for true atomicity (documented requirement)
-//    - Acceptable for single-instance deployments
-//    - Multi-instance deployments must add backend transaction
-//
-// 4. INVITE RESEND/REVOKE DURING ACTIVE SESSION
-//    - Enforcement happens on next auth resolution only
-//    - User can continue with active session until re-authentication
-//    - No real-time revocation of active sessions
-//    - Acceptable trade-off for ERP context
-//
-// 5. EMAIL VERIFICATION SYNC IS EVENTUAL (TIMING-SENSITIVE)
-//    - emailVerified syncs during _resolveAuthenticatedUser
-//    - If Firestore update fails transiently, emailVerified may lag
-//    - User may be blocked by UI even though Firebase Auth says verified
-//    - No explicit reconciliation path in v1 (eventual sync only)
-//    - Acceptable: next auth state change retries sync
-//
-// 6. ACCEPTINVITE IDEMPOTENCY NOT ATOMIC
-//    - Calling acceptInvite() twice on same user is safe but not atomic
-//    - Second call will find user already activated and return immediately
-//    - Race condition window exists: concurrent calls may both proceed to activation
-//    - This is acceptable: second activation fails safely (user already activated)
-//
-// 7. SOFT DELETE RESTORATION PRESERVES ISDIABLED STATE
-//    - When restoring a soft-deleted user, isDisabled flag is preserved
-//    - User is restored to exact state they were deleted in
-//    - If deleted while disabled, restoration leaves them disabled
-//    - Prevents "silent unblocking" of users; explicit re-enable required
-// =============================================================================
+/**
+ * Helper to standardize error handling across service methods.
+ * Preserves AppAuthError (including new semantic types) and AppUserInvariantViolation, maps all other errors.
+ * Issue #1: Now handles AuthInvariantViolationError and AuthInfrastructureError.
+ */
+function rethrowOrMapAuthError(err: unknown): never {
+  if (err instanceof AppAuthError || err instanceof AppUserInvariantViolation) {
+    throw err;
+  }
+  throw mapFirebaseAuthError(err);
+}
+
+// See CLIENT_SIDE_LIMITATIONS.md
 
 class AppAuthService implements IAppAuthService {
   private session: AuthSession = {
@@ -105,6 +84,7 @@ class AppAuthService implements IAppAuthService {
     user: null,
     emailVerified: null,
     lastTransitionError: null,
+    lastAuthError: null,
   };
   private listeners: Set<(session: AuthSession) => void> = new Set();
   private appUserService = new AppUserService();
@@ -122,25 +102,7 @@ class AppAuthService implements IAppAuthService {
   } | null = null;
 
   /**
-   * Helper to wrap all Firebase Auth mutating operations.
-   * Uses a boolean lock to ignore auth state events during mutation.
-   *
-   * NON-REENTRANT: If fn() awaits another withAuthOperation() call, both mutations will queue
-   * sequentially but this is NOT truly reentrant-safe. Callers should avoid nested mutations.
-   *
-   * SEMANTICS: authMutationInProgress flag silences handleAuthStateChanged() listener
-   * to prevent state thrashing during multi-step operations (e.g., create user → activate → resolve).
-   *
-   * Issue #2 fix: TIMEOUT PROTECTION WITH FORCED CLEANUP
-   * Firebase SDK does NOT accept AbortSignal, so abort controller cannot actually cancel operations.
-   * On timeout, we force signOut + reset mutation flags to prevent lock starvation.
-   * This is an acceptable workaround for v1.
-   *
-   * KNOWN ISSUE #1: Concurrent timeout cleanup race
-   * - If two operations timeout simultaneously, cleanup can race
-   * - This would cause double-signOut and flag inconsistency
-   * - Mitigated by: timeoutTriggered flag prevents finally block from resetting
-   * - Future: Consider UUID-based lock for true concurrency safety
+   * Auth mutation wrapper (client-side lock + timeout). See CLIENT_SIDE_LIMITATIONS.md.
    */
   private static readonly OPERATION_TIMEOUT_MS = 30000; // 30 seconds
   private static readonly WAIT_FOR_MUTATION_TIMEOUT_MS = 60000; // 60 seconds for waiting on previous mutation
@@ -313,25 +275,8 @@ class AppAuthService implements IAppAuthService {
   }
 
   /**
-   * CANONICAL POST-AUTH INVARIANT ENFORCEMENT
-   *
-   * Centralizes all invariants that must hold after authentication.
-   * Called from handleAuthStateChanged, signIn, and signupWithInvite.
-   *
-   * Enforces:
-   * - AppUser exists (no orphans)
-   * - user.id === firebaseUser.uid (auth identity linked)
-   * - inviteStatus === 'activated' (invite lifecycle complete)
-   * - isRegisteredOnERP === true (onboarding complete)
-   * - isDisabled === false (user account active)
-   * - emailVerified synced from Firebase Auth (authority chain correct)
-   *
-   * Issue #7 fix: Retry transient failures before throwing to avoid signing out on temporary network issues.
-   *
-   * @param firebaseUser Authenticated Firebase user (never null)
-   * @returns AppUser with all canonical post-auth invariants enforced
-   * @throws InternalAuthError if any post-auth invariant is violated
-   * @throws UserDisabledError if user account is disabled
+   * Canonical post-auth invariant enforcement.
+   * See AUTH_MODEL.md and CLIENT_SIDE_LIMITATIONS.md.
    */
   private async _resolveAuthenticatedUser(firebaseUser: FirebaseUser): Promise<AppUser> {
     // Step 1: Load AppUser from Firestore by authUid
@@ -361,19 +306,20 @@ class AppAuthService implements IAppAuthService {
         'Invariant: appUser must not be null after assertNoOrphanAuthUser',
       );
     }
+    let resolvedUser = appUser;
 
     // Step 2: Enforce auth identity linking
-    assertUserIdMatchesAuthUid(appUser, firebaseUser.uid);
+    assertUserIdMatchesAuthUid(resolvedUser, firebaseUser.uid);
 
     // Step 3: Enforce invite lifecycle completion and registration
-    if (!appUser.isRegisteredOnERP || appUser.inviteStatus !== 'activated') {
+    if (!resolvedUser.isRegisteredOnERP || resolvedUser.inviteStatus !== 'activated') {
       throw new AuthInvariantViolationError(
         'Invariant: authenticated user must be registered and activated',
         {
           context: 'Post-auth invariant violation',
-          userId: appUser.id,
-          inviteStatus: appUser.inviteStatus,
-          isRegisteredOnERP: appUser.isRegisteredOnERP,
+          userId: resolvedUser.id,
+          inviteStatus: resolvedUser.inviteStatus,
+          isRegisteredOnERP: resolvedUser.isRegisteredOnERP,
         },
       );
     }
@@ -381,48 +327,57 @@ class AppAuthService implements IAppAuthService {
     // Step 4: Reject disabled users to prevent race conditions
     // Disabled users briefly appearing authenticated is a known race.
     // We reject them here to maintain invariant: authenticated ⇒ enabled
-    if (appUser.isDisabled) {
+    if (resolvedUser.isDisabled) {
       throw new UserDisabledError();
     }
 
     // Step 5: Sync emailVerified from Firebase Auth (authoritative source)
     // AppUser.emailVerified is a Firestore projection. Firebase Auth is the source of truth.
-    // Issue #3: EVENTUAL SYNC - If Firestore update fails transiently, emailVerified may lag.
-    // This is an accepted limitation. User may be temporarily blocked by UI even if Firebase says verified.
-    // Recovery: Next auth state change will retry sync. No explicit reconciliation path in v1.
+    // FIXED: Retry transient Firestore failures with exponential backoff
+    // This prevents silent lag where AppUser.emailVerified lags Firebase Auth
     const effectiveEmailVerified = firebaseUser.emailVerified;
-    if (appUser.emailVerified !== effectiveEmailVerified) {
-      // Persist the update to Firestore
-      await this.appUserService.updateEmailVerified(appUser.id, effectiveEmailVerified);
-      appUser = { ...appUser, emailVerified: effectiveEmailVerified };
+    if (resolvedUser.emailVerified !== effectiveEmailVerified) {
+      try {
+        // Retry up to 3 times with exponential backoff (1s, 2s, 4s)
+        await this.retryWithBackoff(
+          () => this.appUserService.updateEmailVerified(resolvedUser.id, effectiveEmailVerified),
+          'updateEmailVerified',
+          3,
+        );
+        resolvedUser = { ...resolvedUser, emailVerified: effectiveEmailVerified };
+      } catch (err) {
+        // Log but don't fail auth - eventual consistency is acceptable
+        globalLogger.warn('[AppAuthService] Failed to sync emailVerified after retries', {
+          userId: resolvedUser.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Continue with old emailVerified - will retry on next auth state change
+      }
     }
 
-    // Ensure appUser object has emailVerified property (defensive)
-    if (!('emailVerified' in appUser)) {
-      appUser.emailVerified = effectiveEmailVerified;
-    }
-
-    return appUser;
+    return resolvedUser;
   }
-
-  /**
-   * Attempts to sync emailVerified from Firebase Auth to Firestore.
-   * Idempotent and safe to call repeatedly, but not transactional or retried.
-   */
 
   async signOut(): Promise<void> {
     return this.withAuthOperation(async () => {
       try {
         await firebaseSignOut(this.auth);
-        this.setSession({
-          state: 'unauthenticated',
-          user: null,
-          emailVerified: null,
-          lastTransitionError: null,
-        });
       } catch (err) {
-        throw mapFirebaseAuthError(err);
+        // FIXED: Don't throw if Firebase rejects (e.g., user disabled)
+        // User should always be able to logout locally
+        globalLogger.warn('[AppAuthService] Firebase sign-out failed, forcing local logout', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Continue anyway - force logout
       }
+      // Always update session, regardless of Firebase result
+      this.setSession({
+        state: 'unauthenticated',
+        user: null,
+        emailVerified: null,
+        lastTransitionError: null,
+        lastAuthError: null,
+      });
     });
   }
 
@@ -489,8 +444,7 @@ class AppAuthService implements IAppAuthService {
   }
 
   /**
-   * Canonical handler for Firebase Auth state changes. Used by the main listener and invite flow.
-   * Never duplicate or inline this logic. If you change auth/session logic, update ONLY this method.
+   * Canonical auth state handler. See AUTH_MODEL.md.
    */
   private handleAuthStateChanged = async (firebaseUser: FirebaseUser | null) => {
     // Ignore auth state changes during mutating operations
@@ -502,6 +456,7 @@ class AppAuthService implements IAppAuthService {
           user: null,
           emailVerified: null,
           lastTransitionError: null,
+          lastAuthError: null,
         });
         return;
       }
@@ -511,13 +466,14 @@ class AppAuthService implements IAppAuthService {
         user: appUser,
         emailVerified: firebaseUser.emailVerified,
         lastTransitionError: null,
+        lastAuthError: null,
       });
     } catch (err) {
-      // CRITICAL: Auth state listener must NEVER throw to prevent unhandled promise rejections.
-      // All errors (including invariant violations) are handled by signing out and resetting session.
-      // Log error for debugging and monitoring purposes.
-      // Issue #6 fix: Classify error type for better monitoring
-      const errorType = err instanceof AppAuthError || err instanceof AppUserInvariantViolation ? 'invariant' : 'transient';
+      // Must never throw; see AUTH_MODEL.md and CLIENT_SIDE_LIMITATIONS.md.
+      const errorType =
+        err instanceof AppAuthError || err instanceof AppUserInvariantViolation
+          ? 'invariant'
+          : 'transient';
       this.lastAuthStateError = { error: err, timestamp: new Date() };
       globalLogger.error('[AppAuthService] handleAuthStateChanged error', {
         errorType,
@@ -530,29 +486,13 @@ class AppAuthService implements IAppAuthService {
         user: null,
         emailVerified: null,
         lastTransitionError: null,
+        lastAuthError: { error: err, timestamp: new Date() },
       });
     }
   };
 
   /**
-   * Validates AuthSession state transitions.
-   * Prevents illegal transitions and documents the state machine.
-   *
-   * OBSERVABILITY: Any invalid transition is recorded in lastSessionTransitionError
-   * for debugging and devtools introspection. This allows UI to surface session corruption
-   * without relying on log archaeology.
-   *
-   * Issue #13 - RECOVERY SEMANTICS:
-   * When setSession() catches a transition error, it:
-   * 1. Logs the error for monitoring
-   * 2. Records it in session.lastTransitionError for UI inspection
-   * 3. Continues with the state update anyway (graceful degradation)
-   *
-   * This allows the system to recover from unexpected state machine violations
-   * (e.g., caused by race conditions or concurrent mutations) without blocking
-   * legitimate state updates. The error is preserved for debugging but doesn't
-   * prevent the app from continuing to function.
-   *
+   * Session transition validation. See SESSION_MODEL.md.
    * @internal
    */
   private validateSessionTransition(prev: AuthSession, next: AuthSession): void {
@@ -600,6 +540,7 @@ class AppAuthService implements IAppAuthService {
         user: null,
         emailVerified: null,
         lastTransitionError: null,
+        lastAuthError: null,
       };
     }
     if (session.state === 'unauthenticated' && session.user !== null) {
@@ -641,6 +582,7 @@ class AppAuthService implements IAppAuthService {
         user: null,
         emailVerified: null,
         lastTransitionError: null,
+        lastAuthError: null,
       };
       return;
     }
@@ -673,6 +615,7 @@ class AppAuthService implements IAppAuthService {
 
   /**
    * Returns a snapshot of the current session.
+   * FIXED: Deep copy to prevent accidental mutation of service state.
    *
    * Includes:
    * - state, user: Canonical session state
@@ -682,7 +625,15 @@ class AppAuthService implements IAppAuthService {
    * UI can use lastTransitionError to surface session corruption without log archaeology.
    */
   getSessionSnapshot(): AuthSession {
-    return { ...this.session };
+    return {
+      state: this.session.state,
+      user: this.session.user ? { ...this.session.user } : null,
+      emailVerified: this.session.emailVerified,
+      lastTransitionError: this.session.lastTransitionError
+        ? { ...this.session.lastTransitionError }
+        : null,
+      lastAuthError: this.session.lastAuthError ? { ...this.session.lastAuthError } : null,
+    };
   }
 
   /**
@@ -705,10 +656,10 @@ class AppAuthService implements IAppAuthService {
 
   /**
    * Returns the last auth state listener error (if any).
-   * For debugging and monitoring only. Not part of public contract.
-   * @internal
+   * Issue #13 fix: Expose for UI error display and debugging.
+   * @internal (monitoring/debugging, optional UI display)
    */
-  getLastAuthStateError(): { error: unknown; timestamp: Date } | null {
+  getLastAuthError(): { error: unknown; timestamp: Date } | null {
     return this.lastAuthStateError;
   }
 
@@ -754,6 +705,7 @@ class AppAuthService implements IAppAuthService {
             user,
             emailVerified: cred.user.emailVerified,
             lastTransitionError: null,
+            lastAuthError: null,
           });
           return this.session;
         } catch (err) {
@@ -775,6 +727,7 @@ class AppAuthService implements IAppAuthService {
         user: null,
         emailVerified: null,
         lastTransitionError: null,
+        lastAuthError: null,
       });
       try {
         // Issue #4 fix: Use centralized normalizeEmail helper
@@ -786,6 +739,7 @@ class AppAuthService implements IAppAuthService {
           user: appUser,
           emailVerified: cred.user.emailVerified,
           lastTransitionError: null,
+          lastAuthError: null,
         });
         return this.session;
       } catch (err) {
@@ -795,6 +749,7 @@ class AppAuthService implements IAppAuthService {
           user: null,
           emailVerified: null,
           lastTransitionError: null,
+          lastAuthError: null,
         });
         if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
         throw mapFirebaseAuthError(err);
@@ -851,6 +806,7 @@ class AppAuthService implements IAppAuthService {
         user: updated,
         emailVerified: user.emailVerified,
         lastTransitionError: null,
+        lastAuthError: null,
       });
       return updated;
     } catch (err) {
@@ -875,144 +831,138 @@ class AppAuthService implements IAppAuthService {
     }
   }
   /**
-   * Signup with invite: creates Firebase Auth user ONLY if a valid invite exists.
-   *
-   * Flow:
-   * 1. Checks AppUser by email, asserts inviteStatus === 'invited', not revoked/disabled
-   * 2. Creates Firebase Auth user
-   * 3. Links authUid to AppUser (creates new doc with authUid, soft-deletes old invite doc)
-   * 4. Activates invite (inviteStatus → activated, isRegisteredOnERP → true)
-   *
-   * ORPHAN RECOVERY (Issue #11):
-   * - If activation fails after linking, orphaned AppUser is created
-   * - Recover using listOrphanedLinkedUsers() + cleanupOrphanedLinkedUser()
-   *
-   * ⚠️ NON-ATOMIC OPERATION:
-   * This operation updates Firestore and Firebase Auth sequentially.
-   * If any step fails, best-effort rollback is attempted (Auth user deletion).
-   * However, network failures or race conditions may leave partial state:
-   * - Orphaned Firebase Auth user without AppUser
-   * - Soft-deleted invite doc without linked Auth user
-   *
-   * ⚠️ ASYMMETRIC ROLLBACK:
-   * If activateInvitedUser fails AFTER linkAuthIdentity succeeds:
-   * - Firebase Auth user is deleted (rolled back)
-   * - New AppUser doc (with id = authUid) remains in Firestore
-   * - Old invited doc remains soft-deleted
-   * This orphaned AppUser requires manual owner cleanup via cleanupOrphanedLinkedUser()
-   *
-   * @throws InviteInvalidError if no invite exists or invite is invalid
-   * @throws InviteAlreadyAcceptedError if invite already accepted
-   * @throws InviteRevokedError if invite was revoked
-   * @throws NotAuthorizedError if user is disabled
-   */\n  async signupWithInvite(email: string, password: string): Promise<AuthSession> {\n    // Issue #4 fix: Use centralized normalizeEmail helper\n    const normalizedEmail = normalizeEmail(email);
-    // Step 1: Check for invited AppUser
-    let invitedUser: AppUser | null = null;
-    try {
-      invitedUser = await this.appUserService.getUserByEmail(normalizedEmail);
-    } catch (err) {
-      throw new InviteInvalidError();
-    }
-    if (!invitedUser) throw new InviteInvalidError();
-    if (invitedUser.inviteStatus === 'revoked') throw new InviteRevokedError();
-    if (invitedUser.inviteStatus === 'activated') throw new InviteAlreadyAcceptedError();
-    if (invitedUser.inviteStatus !== 'invited') throw new InviteInvalidError();
-    if (invitedUser.isDisabled) throw new NotAuthorizedError();
+   * Invite signup flow (client-side, non-atomic).
+   * See INVITE_FLOW.md and CLIENT_SIDE_LIMITATIONS.md.
+   */
+  async signupWithInvite(email: string, password: string): Promise<AuthSession> {
+    return this.withAuthOperation(async () => {
+      // See INVITE_FLOW.md
+      const normalizedEmail = normalizeEmail(email);
+      let invitedUser: AppUser | null = null;
+      try {
+        invitedUser = await this.appUserService.getUserByEmail(normalizedEmail);
+      } catch (err) {
+        throw new InviteInvalidError();
+      }
+      if (!invitedUser) throw new InviteInvalidError();
+      if (invitedUser.inviteStatus === 'revoked') throw new InviteRevokedError();
+      if (invitedUser.inviteStatus === 'activated') throw new InviteAlreadyAcceptedError();
+      if (invitedUser.inviteStatus !== 'invited') throw new InviteInvalidError();
+      if (invitedUser.isDisabled) throw new NotAuthorizedError();
 
-    // Step 2: Create Firebase Auth user
-    let cred;
-    try {
-      cred = await createUserWithEmailAndPassword(this.auth, normalizedEmail, password);
-    } catch (err) {
-      throw mapFirebaseAuthError(err);
-    }
+      let cred;
+      try {
+        cred = await createUserWithEmailAndPassword(this.auth, normalizedEmail, password);
+      } catch (err) {
+        throw mapFirebaseAuthError(err);
+      }
 
-    // Step 3: Re-fetch AppUser and check for race
-    let freshUser: AppUser | null = null;
-    try {
-      freshUser = await this.appUserService.getUserByEmail(normalizedEmail);
-    } catch (err) {
-      // Defensive: delete auth user if AppUser fetch fails
-      await cred.user.delete();
-      throw new InviteInvalidError();
-    }
-    if (!freshUser) {
-      await cred.user.delete();
-      throw new InviteInvalidError();
-    }
-    if (freshUser.id === cred.user.uid) {
-      await cred.user.delete();
-      throw new InviteAlreadyAcceptedError();
-    }
-    if (freshUser.inviteStatus !== 'invited') {
-      await cred.user.delete();
-      throw new InviteInvalidError();
-    }
-
-    // Canonical auth identity rule: enforce one-time linking
-    assertAuthIdentityNotLinked(freshUser, cred.user.uid);
-
-    // Step 4: Link authUid to AppUser
-    // Note: linkAuthIdentity includes race condition protection (duplicate authUid check)
-    try {
-      await this.appUserService.linkAuthIdentity(freshUser.id, cred.user.uid);
-      // Enforce linking invariant immediately after linking
-      const linkedUser = await this.appUserService.getUserById(cred.user.uid);
-      assertUserIdMatchesAuthUid(linkedUser!, cred.user.uid);
-      // Issue #11 fix: Re-check invite status after linking to catch concurrent revocation
-      if (linkedUser!.inviteStatus !== 'invited') {
-        globalLogger.error(
-          '[AppAuthService] signupWithInvite: invite status changed after linking (concurrent revocation detected)',
-          { email, userId: linkedUser!.id, inviteStatus: linkedUser!.inviteStatus },
-        );
+      let freshUser: AppUser | null = null;
+      try {
+        freshUser = await this.appUserService.getUserByEmail(normalizedEmail);
+      } catch (err) {
+        // Defensive: delete auth user if AppUser fetch fails
         await cred.user.delete();
         throw new InviteInvalidError();
       }
-      // Immediately disable the linked user to avoid zombie accounts on failure.
-      // NOTE: Race condition window exists between linking and disabling.
-      // If app crashes between linkAuthIdentity() and updateUserStatus(), user is briefly enabled.
-      // Post-crash, user will have valid Firebase Auth session but be in invalid state (linked but not activated).
-      // This is resolved by: (1) manual owner repair via cleanupOrphanedLinkedUser(), or (2) user re-attempting signup.
-      await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
-    } catch (err) {
-      // Rollback: delete Auth user if linking fails
-      globalLogger.error('[AppAuthService] signupWithInvite: linkAuthIdentity failed', {
-        email: normalizedEmail,
-        invitedUserId: freshUser.id,
-        authUid: cred.user.uid,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      await cred.user.delete();
-      throw mapFirebaseAuthError(err);
-    }
+      if (!freshUser) {
+        await cred.user.delete();
+        throw new InviteInvalidError();
+      }
+      if (freshUser.id === cred.user.uid) {
+        await cred.user.delete();
+        throw new InviteAlreadyAcceptedError();
+      }
+      if (freshUser.inviteStatus !== 'invited') {
+        await cred.user.delete();
+        throw new InviteInvalidError();
+      }
 
-    // Step 5: Activate invite and enforce canonical post-auth invariants
-    try {
-      await this.appUserService.activateInvitedUser(cred.user.uid);
-      // Re-enable user only after successful activation
-      await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: false });
-      // Enforce all canonical post-auth invariants through single canonical method
-      const appUser = await this._resolveAuthenticatedUser(cred.user);
-      this.setSession({
-        state: 'authenticated',
-        user: appUser,
-        emailVerified: cred.user.emailVerified,
-        lastTransitionError: null,
-      });
-      return this.session;
-    } catch (err) {
-      // CRITICAL: Activation failure creates orphan AppUser (linked but not activated)
-      // This is logged for manual recovery by owner using cleanupOrphanedLinkedUser()
-      globalLogger.error('[AppAuthService] signupWithInvite: activation failed (orphan created)', {
-        email: normalizedEmail,
-        authUid: cred.user.uid,
-        error: err instanceof Error ? err.message : String(err),
-        recovery: 'Use appAuthService.cleanupOrphanedLinkedUser(authUid) after investigation',
-      });
-      // Rollback: delete Auth user if activation fails
-      await cred.user.delete();
-      throw mapFirebaseAuthError(err);
-    }
+      // Canonical auth identity rule
+      assertAuthIdentityNotLinked(freshUser, cred.user.uid);
+
+      // Link authUid to AppUser (race-protected)
+      try {
+        await this.appUserService.linkAuthIdentity(freshUser.id, cred.user.uid);
+        // Enforce linking invariant immediately after linking
+        const linkedUser = await this.appUserService.getUserById(cred.user.uid);
+        assertUserIdMatchesAuthUid(linkedUser!, cred.user.uid);
+        // Issue #11 fix: Re-check invite status after linking to catch concurrent revocation
+        if (linkedUser!.inviteStatus !== 'invited') {
+          globalLogger.error(
+            '[AppAuthService] signupWithInvite: invite status changed after linking (concurrent revocation detected)',
+            { email, userId: linkedUser!.id, inviteStatus: linkedUser!.inviteStatus },
+          );
+          await cred.user.delete();
+          throw new InviteInvalidError();
+        }
+        // Immediately disable the linked user to avoid zombie accounts on failure.
+        // NOTE: Race condition window exists between linking and disabling.
+        // If app crashes between linkAuthIdentity() and updateUserStatus(), user is briefly enabled.
+        // Post-crash, user will have valid Firebase Auth session but be in invalid state (linked but not activated).
+        // This is resolved by: (1) manual owner repair via cleanupOrphanedLinkedUser(), or (2) user re-attempting signup.
+        await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
+      } catch (err) {
+        // Rollback: delete Auth user if linking fails
+        globalLogger.error('[AppAuthService] signupWithInvite: linkAuthIdentity failed', {
+          email: normalizedEmail,
+          invitedUserId: freshUser.id,
+          authUid: cred.user.uid,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await cred.user.delete();
+        throw mapFirebaseAuthError(err);
+      }
+
+      // Activate invite and enforce canonical post-auth invariants
+      try {
+        await this.appUserService.activateInvitedUser(cred.user.uid);
+        // Re-enable user only after successful activation
+        await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: false });
+        // Issue #15 fix: Auto-trigger email verification after successful signup
+        // User will receive verification email automatically on signup completion
+        try {
+          await sendEmailVerification(cred.user);
+          globalLogger.info('[AppAuthService] Email verification sent during signup', {
+            email: normalizedEmail,
+            uid: cred.user.uid,
+          });
+        } catch (verificationErr) {
+          // Non-critical: log but don't fail signup if email verification fails
+          globalLogger.warn('[AppAuthService] Failed to send verification email during signup', {
+            email: normalizedEmail,
+            error:
+              verificationErr instanceof Error ? verificationErr.message : String(verificationErr),
+          });
+          // Continue with signup; user can manually resend verification later
+        }
+        // Enforce all canonical post-auth invariants through single canonical method
+        const appUser = await this._resolveAuthenticatedUser(cred.user);
+        this.setSession({
+          state: 'authenticated',
+          user: appUser,
+          emailVerified: cred.user.emailVerified,
+          lastTransitionError: null,
+          lastAuthError: null,
+        });
+        return this.session;
+      } catch (err) {
+        // CRITICAL: Activation failure creates orphan AppUser (linked but not activated)
+        // This is logged for manual recovery by owner using cleanupOrphanedLinkedUser()
+        globalLogger.error(
+          '[AppAuthService] signupWithInvite: activation failed (orphan created)',
+          {
+            email: normalizedEmail,
+            authUid: cred.user.uid,
+            error: err instanceof Error ? err.message : String(err),
+            recovery: 'Use appAuthService.cleanupOrphanedLinkedUser(authUid) after investigation',
+          },
+        );
+        // Rollback: delete Auth user if activation fails
+        await cred.user.delete();
+        throw mapFirebaseAuthError(err);
+      }
+    });
   }
 
   /**
@@ -1171,11 +1121,51 @@ class AppAuthService implements IAppAuthService {
 
   /**
    * Resend an invite for a user. Only allowed for owner. Only updates inviteSentAt.
+   * Issue #19 fix: Add rate limiting to prevent spam (24-hour window).
+   *
+   * RATE LIMITING:
+   * - Cannot resend if already sent in last 24 hours
+   * - Throws TooManyRequestsError if rate limit exceeded
+   * - Exception: owner can force resend by calling with force=true (audit-logged)
    */
-  async resendInvite(userId: string): Promise<AppUser> {
+  async resendInvite(userId: string, options?: { force?: boolean }): Promise<AppUser> {
     assertAuthenticatedUser(this.session.user);
     if (this.session.user.role !== 'owner') throw new NotOwnerError();
     try {
+      // Fetch user to check inviteSentAt timestamp
+      const user = await this.appUserService.getUserById(userId);
+      if (!user) {
+        throw new InviteInvalidError();
+      }
+
+      // Issue #19 fix: Check rate limit (unless force=true)
+      if (!options?.force && user.inviteSentAt) {
+        const nowMs = new Date().getTime();
+        const sentMs = new Date(user.inviteSentAt).getTime();
+        const elapsedMs = nowMs - sentMs;
+        const RESEND_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+        if (elapsedMs < RESEND_COOLDOWN_MS) {
+          const minutesRemaining = Math.ceil((RESEND_COOLDOWN_MS - elapsedMs) / (60 * 1000));
+          globalLogger.warn('[AppAuthService] Invite resend rate limited', {
+            userId,
+            lastSentAt: user.inviteSentAt,
+            minutesRemaining,
+          });
+          throw new TooManyRequestsError();
+        }
+      }
+
+      // Log forced resend with owner audit trail
+      if (options?.force && user.inviteSentAt) {
+        const elapsedMs = new Date().getTime() - new Date(user.inviteSentAt).getTime();
+        globalLogger.warn('[AppAuthService] Forced invite resend (bypassed cooldown)', {
+          userId,
+          forceResendBy: this.session.user.id,
+          hoursSinceLast: Math.round(elapsedMs / (60 * 60 * 1000)),
+        });
+      }
+
       return await this.appUserService.resendInvite({ userId });
     } catch (err) {
       rethrowOrMapAuthError(err);
@@ -1209,31 +1199,20 @@ class AppAuthService implements IAppAuthService {
   // Only one acceptInvite implementation should exist
 
   /**
-   * Accept an invite for the currently authenticated user.
-   * Transitions inviteStatus to 'activated' and sets isRegisteredOnERP = true.
-   * Returns the authenticated session.
-   *
-   * ⚠️ IMPORTANT USAGE CONSTRAINT:
-   *
-   * acceptInvite MUST NOT be used for signup flows.
-   * - Signup (creating Firebase Auth user) MUST go through signupWithInvite()
-   * - acceptInvite() is ONLY for post-signup invite activation
-   * - Caller MUST already have an authenticated Firebase session
-   * - User MUST already be registered on ERP (isRegisteredOnERP === true)
-   *
-   * If isRegisteredOnERP === false, this indicates the user has not completed
-   * signup and must use signupWithInvite() instead.
-   *
-   * ⚠️ DUPLICATION GUARD: If TypeScript compiler error appears here, another acceptInvite() exists.
-   * Search for "async acceptInvite" and remove duplicate implementation.
+   * Post-signup invite activation.
+   * See INVITE_FLOW.md and CLIENT_SIDE_LIMITATIONS.md.
    */
   async acceptInvite(): Promise<AuthSession> {
     // Compile-time assertion: acceptInvite must be unique
     const _exhaustiveCheck: typeof this.acceptInvite extends (...args: infer Args) => infer Ret
-      ? Args extends [] ? Ret extends Promise<AuthSession> ? true : never : never
+      ? Args extends []
+        ? Ret extends Promise<AuthSession>
+          ? true
+          : never
+        : never
       : never = true;
     _exhaustiveCheck; // Unused but enforces signature
-    
+
     assertAuthenticatedUser(this.session.user);
 
     // Hard invariant: acceptInvite cannot be used for signup
@@ -1264,6 +1243,7 @@ class AppAuthService implements IAppAuthService {
         user: appUser,
         emailVerified: this.auth.currentUser!.emailVerified,
         lastTransitionError: null,
+        lastAuthError: null,
       });
       return this.session;
     } catch (err) {

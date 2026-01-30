@@ -24,11 +24,7 @@ export type AppAuthErrorCode =
   | 'auth/internal';
 
 /**
- * Base class for all AppAuthService errors.
- *
- * - Stable public error surface
- * - Never exposes Firebase error objects
- * - Safe to throw across Suspense boundaries
+ * Base class for AppAuthService errors. See README.public.md.
  */
 export abstract class AppAuthError extends Error {
   abstract readonly code: AppAuthErrorCode;
@@ -105,13 +101,7 @@ export class OwnerAlreadyExistsError extends AppAuthError {
 }
 
 /**
- * Issue #1 fix: Separate error types for different failure semantics.
- *
- * AuthInvariantViolationError: Data corruption or system invariant violated.
- * - Indicates: Firestore data is inconsistent or business rules broken
- * - Recovery: Force sign-out, manual investigation required
- * - UI: Show fatal error, contact support
- * - Monitoring: High-priority alert, investigate data corruption
+ * Invariant violation. See AUTH_MODEL.md and CLIENT_SIDE_LIMITATIONS.md.
  */
 export class AuthInvariantViolationError extends AppAuthError {
   readonly code = 'auth/invariant-violation';
@@ -121,13 +111,7 @@ export class AuthInvariantViolationError extends AppAuthError {
 }
 
 /**
- * Issue #1 fix: Transient infrastructure failures.
- *
- * AuthInfrastructureError: Network, Firestore, or Firebase SDK transient failure.
- * - Indicates: Temporary connectivity or service unavailability
- * - Recovery: Retry with backoff, user can try again
- * - UI: Show "try again" message
- * - Monitoring: Track error rate, alert if sustained high rate
+ * Transient infrastructure failure. See CLIENT_SIDE_LIMITATIONS.md.
  */
 export class AuthInfrastructureError extends AppAuthError {
   readonly code = 'auth/infrastructure-error';
@@ -137,8 +121,7 @@ export class AuthInfrastructureError extends AppAuthError {
 }
 
 /**
- * InternalAuthError: Fallback for unexpected/unclassified errors.
- * Use this only when error doesn't fit other categories.
+ * Internal fallback error. See README.public.md.
  */
 export class InternalAuthError extends AppAuthError {
   readonly code = 'auth/internal';
@@ -176,6 +159,19 @@ export function mapFirebaseAuthError(error: unknown): AppAuthError {
 
     case 'auth/requires-recent-login':
       return new SessionExpiredError(error);
+
+    case 'auth/network-request-failed':
+      return new AuthInfrastructureError('Network request failed', error);
+
+    case 'auth/operation-not-allowed':
+      return new AuthInfrastructureError('Authentication method not enabled', error);
+
+    case 'auth/invalid-action-code':
+    case 'auth/expired-action-code':
+      return new AuthInfrastructureError('Action code is invalid or expired', error);
+
+    case 'auth/quota-exceeded':
+      return new TooManyRequestsError(error);
 
     default:
       return new AuthInfrastructureError('Firebase Auth error', error);

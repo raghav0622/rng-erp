@@ -58,21 +58,7 @@ const appUserRepo = new AppUserRepository();
 
 export class AppUserService implements IAppUserService {
   /**
-   * Permanently delete a user record (hard delete, not soft delete).
-   * Only the owner may perform this operation.
-   *
-   * ⚠️ DANGEROUS INTERNAL OPERATION ⚠️
-   *
-   * MUST only be used after:
-   * - User has been soft-deleted (deletedAt !== null)
-   * - Invite has been revoked (for invited users)
-   * - User is NOT registered on ERP (isRegisteredOnERP === false)
-   *
-   * This permanently removes the user record from Firestore.
-   * Firebase Auth cleanup is out of scope and must be handled separately.
-   *
-   * @param userId User ID
-   * @throws AppUserInvariantViolation if user is owner, not soft-deleted, or registered on ERP
+   * Hard delete (owner-only). See README.internal.md and CLIENT_SIDE_LIMITATIONS.md.
    */
   async deleteUserPermanently(userId: string): Promise<void> {
     const user = await this.appUserRepo.getById(userId, { includeDeleted: true });
@@ -80,12 +66,9 @@ export class AppUserService implements IAppUserService {
     await this.appUserRepo.delete(userId);
   }
   /**
-   * Restore a soft-deleted user.
-   * Issue #21 fix: Preserve isDisabled state to prevent resurrection attack.
-   * @param userId User ID
-   * @returns The restored user
+   * Restore a soft-deleted user. See README.internal.md.
    */
-  async restoreUser(userId: string): Promise<AppUser> {
+  async restoreUser(userId: string, options?: { updateInviteSentAt?: boolean }): Promise<AppUser> {
     // Only allow restoring if user is soft-deleted and not owner
     const user = await this.appUserRepo.getById(userId, { includeDeleted: true });
     assertUserExists(user);
@@ -94,9 +77,7 @@ export class AppUserService implements IAppUserService {
     }
     assertUserIsNotOwner(user!, 'restored');
     assertUserCanBeRestored(user!);
-    // --- Restore semantics for invited/activated users ---
-    // If restoring an invited user, inviteStatus must be preserved and inviteSentAt must exist.
-    // If inviteSentAt is missing for an invited user, restoration fails defensively.
+    // See CLIENT_SIDE_LIMITATIONS.md
     if (user!.inviteStatus === 'invited') {
       if (!user!.inviteSentAt) {
         throw new AppUserInvariantViolation('Cannot restore invited user without inviteSentAt', {
@@ -111,9 +92,23 @@ export class AppUserService implements IAppUserService {
       userId,
       isDisabled: wasDisabled,
       preventResurrectionAttack: true,
+      updateInviteSentAt: options?.updateInviteSentAt,
     });
+
+    // Optional invite timestamp refresh (policy). See CLIENT_SIDE_LIMITATIONS.md
+    const updates: Partial<AppUser> = { deletedAt: undefined };
+    if (options?.updateInviteSentAt && user!.inviteStatus === 'invited') {
+      updates.inviteSentAt = new Date();
+      // Clear inviteRespondedAt since we're resending the invite
+      updates.inviteRespondedAt = undefined;
+      globalLogger.info('[AppUserService] Refreshing invite timestamp on restoration', {
+        userId,
+        newInviteSentAt: updates.inviteSentAt,
+      });
+    }
+
     // Restore by unsetting deletedAt (keep isDisabled unchanged)
-    const updated = await this.appUserRepo.update(userId, { deletedAt: undefined });
+    const updated = await this.appUserRepo.update(userId, updates);
     // Verify isDisabled state was preserved
     if (updated.isDisabled !== wasDisabled) {
       throw new AppUserInvariantViolation(
@@ -121,7 +116,7 @@ export class AppUserService implements IAppUserService {
         { userId, expected: wasDisabled, actual: updated.isDisabled },
       );
     }
-    // Enforce state invariants only (inviteStatus, inviteSentAt, etc.)
+    // Enforce invite invariants only (see INVITE_FLOW.md)
     if (updated.inviteStatus === 'invited') {
       assertInviteSentAtForInvited(updated);
     }
@@ -129,29 +124,12 @@ export class AppUserService implements IAppUserService {
   }
 
   /**
-   * Search users by arbitrary fields (role, status, etc).
-   *
-   * ⚠️ FROZEN POLICY COMMITMENT (Issue #5):
-   * This method allows ANY authenticated user (including clients) to search by:
-   * - role (exposes org structure)
-   * - isDisabled (exposes user status)
-   * - isRegisteredOnERP (exposes onboarding state)
-   *
-   * This leaks internal organizational structure and CANNOT be reversed
-   * without breaking existing clients. This is an intentional design decision
-   * for transparency in a private ERP system.
-   *
-   * IRREVERSIBLE: You cannot later say "clients shouldn't see internal users"
-   * without a major version bump and breaking all deployed clients.
-   *
-   * @param query Partial<AppUser> fields to match
-   * @returns Array of users matching query
+   * User search (client-side policy). See CLIENT_SIDE_LIMITATIONS.md.
    */
   async searchUsers(query: Partial<AppUser>): Promise<AppUser[]> {
     // Enforce invariant: query must specify at least one field
     assertValidUserSearchQuery(query);
-    // Only allow searching on a safe, indexed subset of fields
-    // ⚠️ FROZEN POLICY — DO NOT EXPAND ALLOWED_FIELDS
+    // Allowed fields are a frozen client-side policy. See CLIENT_SIDE_LIMITATIONS.md
     const ALLOWED_FIELDS = [
       'email',
       'role',

@@ -30,78 +30,21 @@ export type AuthSessionState =
   | 'authenticated'; // Firebase + AppUser resolved
 
 /**
- * AuthSession represents the current authentication state and user projection.
- * Only the fields defined here are intentionally exposed to consumers.
- *
- * - state: High-level session state (see AuthSessionState)
- * - user: The current AppUser projection, or null if unauthenticated
- * - emailVerified: Explicit signal from Firebase Auth (source of truth).
- *   - null when state === 'unauthenticated' or 'unknown'
- *   - true/false when state === 'authenticated' (from Firebase Auth)
- *   UI can use this to block actions requiring email verification without inferring from invariants.
- *
- * IMPORTANT: emailVerified is eventually-consistent synced to Firestore (Issue #7).
- * - On initial auth, emailVerified is pulled from Firebase Auth
- * - If Firestore sync fails transiently, AppUser.emailVerified may lag Firebase
- * - Next auth state change retries sync (no explicit reconciliation in v1)
- * - This is acceptable: eventual consistency sufficient for ERP context
- *
- * - lastTransitionError: The most recent session state transition error (for debugging).
- *   - null if the most recent transition was valid
- *   - Error object + metadata if validation failed (not thrown, swallowed by setSession)
- *
- * Issue #12 - lastTransitionError Lifecycle:
- *   - Set when validateSessionTransition() fails (invalid state machine transition)
- *   - Cleared on next successful transition (explicitly set to null)
- *   - NOT persisted across app restarts (ephemeral, in-memory only)
- *   - Intended for UI/devtools inspection, not application logic
- *   - Should be monitored/logged but not used for user-facing error messages
+ * AuthSession is the canonical client-side auth state.
+ * See SESSION_MODEL.md and AUTH_MODEL.md.
  */
 export interface AuthSession {
   state: AuthSessionState;
   user: AppUser | null;
   emailVerified: boolean | null;
   lastTransitionError: { error: unknown; from: AuthSessionState; to: AuthSessionState } | null;
+  lastAuthError: { error: unknown; timestamp: Date } | null;
 }
 
 export type UnsubscribeFn = () => void;
 
 /**
- * AppAuthService
- *
- * This is the ONLY service exposed to application developers
- * for authentication and user management.
- *
- * AppUserService is internal and MUST NOT be consumed directly.
- *
- * ---
- *
- * USAGE EXAMPLES:
- *
- * // Sign in
- * await appAuthService.signIn('user@example.com', 'password');
- *
- * // Owner signup
- * await appAuthService.ownerSignUp({ email, password, name });
- *
- * // Invite a user (owner only)
- * await appAuthService.inviteUser({ email, name, role: 'employee' });
- *
- * // Accept invite
- * await appAuthService.acceptInvite();
- *
- * // Update user profile
- * await appAuthService.updateUserProfile(userId, { name: 'New Name' });
- *
- * // List users (with pagination)
- * const { data, nextPageToken } = await appAuthService.listUsers({ pageSize: 20 });
- *
- * // Resend invite (owner only)
- * await appAuthService.resendInvite(userId);
- *
- * // Revoke invite (owner only)
- * await appAuthService.revokeInvite(userId);
- *
+ * AppAuthService contract. See README.public.md, README.internal.md, CLIENT_SIDE_LIMITATIONS.md.
  */
 
 export interface IAppAuthService {
@@ -113,15 +56,7 @@ export interface IAppAuthService {
   restoreUser(userId: string): Promise<AppUser>;
 
   /**
-   * Search users by indexed, allow-listed fields only (email, role, inviteStatus, isDisabled, isRegisteredOnERP).
-   * Only allow-listed, indexed fields are honored. Other fields are ignored.
-   * @dangerous High-risk: exposes org structure. Intended for internal admin UI only.
-   * @param query Partial<AppUser> fields to match (must be allow-listed)
-   * @returns Array of users matching query
-   *
-   * Issue #3 & #9: KNOWN LIMITATION - email uniqueness is non-atomic.
-   * Multiple concurrent invites with the same email may both succeed due to Firestore eventual consistency.
-   * Owner should monitor for duplicate emails and manually clean up via delete/restore.
+   * User search (client-side policy). See CLIENT_SIDE_LIMITATIONS.md.
    */
   searchUsers(query: Partial<AppUser>): Promise<AppUser[]>;
 
@@ -132,16 +67,7 @@ export interface IAppAuthService {
    */
   reactivateUser(userId: string): Promise<AppUser>;
   /**
-   * Owner bootstrap (first and only signup).
-   *
-   * Rules:
-   * - Allowed only if no owner exists
-   * - Creates Firebase Auth user
-   * - Creates AppUser with role = owner
-   * - Owner is immediately registered and activated
-   *
-   * NOTE:
-   * - initial password policy does NOT apply to owner bootstrap
+   * Owner bootstrap (client-side, non-atomic). See CLIENT_SIDE_LIMITATIONS.md.
    */
   ownerSignUp(data: {
     email: string;
@@ -151,12 +77,7 @@ export interface IAppAuthService {
   }): Promise<AuthSession>;
 
   /**
-   * Sign in with email and password.
-   *
-   * Behavior:
-   * - Authenticates via Firebase Auth
-   * - Resolves AppUser from Firestore
-   * - Returns full ERP session
+   * Sign in with email/password. See AUTH_MODEL.md.
    */
   signIn(email: string, password: string): Promise<AuthSession>;
 
@@ -166,41 +87,17 @@ export interface IAppAuthService {
   signOut(): Promise<void>;
 
   /**
-   * Send password reset email (Firebase-managed).
-   *
-   * SECURITY NOTES:
-   * - Firebase enforces rate limiting: 6 requests per hour per IP
-   * - This method does NOT distinguish between valid and invalid emails (by design)
-   * - Client should implement additional rate limiting and user feedback
-   * - Password reset codes expire after 1 hour
+   * Send password reset email. See CLIENT_SIDE_LIMITATIONS.md.
    */
   sendPasswordResetEmail(email: string): Promise<void>;
 
   /**
-   * Send email verification link to current authenticated user.
-   * Issue #6 fix: Email recovery path for users blocked by emailVerified === false.
-   *
-   * BEHAVIOR:
-   * - Sends verification email via Firebase Auth
-   * - User must click link to mark email as verified in Firebase
-   * - AppUser.emailVerified syncs on next auth state change
-   *
-   * SECURITY NOTES:
-   * - Firebase enforces rate limiting on verification emails
-   * - User must be authenticated before calling this
-   * - Link expires after 24 hours (Firebase default)
-   *
-   * @throws NotAuthenticatedError if no authenticated user
+   * Send email verification link. See AUTH_MODEL.md.
    */
   sendEmailVerificationEmail(): Promise<void>;
 
   /**
-   * Complete password reset using Firebase reset code.
-   *
-   * SECURITY NOTES:
-   * - Code must be valid and not expired (throws InternalAuthError if invalid)
-   * - Password must meet Firebase strength requirements
-   * - This operation does NOT send confirmation email; caller should notify user separately
+   * Complete password reset. See README.public.md.
    */
   confirmPasswordReset(code: string, newPassword: string): Promise<void>;
 
@@ -210,87 +107,46 @@ export interface IAppAuthService {
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
 
   /**
-   * Returns the currently authenticated ERP user after auth resolution.
-   *
-   * - Waits for existing Firebase Auth session to resolve (authenticated or unauthenticated)
-   * - Does NOT trigger new auth operations or loading
-   * - For immediate synchronous snapshot, use getSessionSnapshot()
-   * - Derived from Firebase Auth session + AppUser
-   * - Returns null if not authenticated
+   * Return the current user after auth resolution. See SESSION_MODEL.md.
    */
   getCurrentUser(): Promise<AppUser | null>;
 
   /**
-   * Owner-only: update own profile.
-   *
-   * Allowed fields:
-   * - name
-   * - photoUrl
+   * Owner-only profile update. See README.public.md.
    */
   updateOwnerProfile(data: { name?: string; photoUrl?: string }): Promise<AppUser>;
 
   /**
-   * Owner-only: invite a new user (Firestore-only, no Firebase Auth user).
-   *
-   * Behavior:
-   * - Creates AppUser with inviteStatus = 'invited'
-   * - Does NOT create Firebase Auth user
-   * - Invitee must use signupWithInvite() to complete signup (create Auth user)
-   * - Invited users CANNOT sign in until they complete signupWithInvite()
-   *
-   * Invite Lifecycle:
-   * 1. Owner calls inviteUser() → creates Firestore invite record (inviteStatus = 'invited')
-   * 2. Invitee calls signupWithInvite(email, password) → creates Firebase Auth user + links to invite
-   * 3. signupWithInvite automatically activates invite (inviteStatus = 'activated')
-   * 4. User can now sign in via signIn()
-   *
-   * IMMUTABLE: Once created, only the owner can revoke or resend the invite.
-   * The invitee cannot self-reject; deletion is permanent and requires admin action.
+   * Invite creation (owner-only). See INVITE_FLOW.md.
    */
   inviteUser(data: CreateInvitedUser): Promise<AppUser>;
 
   /**
-   * Invited user: accept invite and complete onboarding.
-   *
-   * Behavior:
-   * - Transitions inviteStatus to 'activated'
-   * - Syncs emailVerified from Firebase Auth
-   * - Enforces all canonical post-auth invariants
-   * - Returns authenticated session
-   *
-   * CRITICAL PRECONDITIONS:
-   * - User MUST have already completed signupWithInvite() (isRegisteredOnERP === true)
-   * - User MUST be authenticated via Firebase Auth
-   * - Calling this for signup (isRegisteredOnERP === false) will throw InviteInvalidError
-   *
-   * SECURITY:
-   * - Rejects invites that have been revoked
-   * - Rejects invites from disabled users
-   * - Idempotent: calling for already-activated user is a no-op (safe)
-   * - Rejects disabled users at setSession() (defensive race protection)
+   * Invite activation (post-signup). See INVITE_FLOW.md.
    */
   acceptInvite(): Promise<AuthSession>;
 
   /**
-   * Subscribe to authentication state changes.
-   *
-   * Emits:
-   * - AuthSession with state = 'authenticated' and user set
-   * - AuthSession with state = 'unauthenticated' and user = null
+   * Subscribe to auth state changes. See SESSION_MODEL.md.
    */
   onAuthStateChanged(callback: (session: AuthSession) => void): UnsubscribeFn;
 
   /**
-   * Returns the last known auth session synchronously.
-   *
-   * Never throws.
-   * Safe to call outside React.
+   * Synchronous session snapshot. See SESSION_MODEL.md.
    */
   getSessionSnapshot(): AuthSession;
 
   /**
+   * Returns the last auth state change error (if any).
+   * Issue #13 fix: Expose for UI error display.
+   * Can be used to show user-friendly error messages when auth fails.
+   * @internal (monitoring/debugging, optional UI display)
+   */
+  getLastAuthError(): { error: unknown; timestamp: Date } | null;
+
+  /**
    * Returns the last session state machine transition error (if any).
-   * Issue #6 fix: Expose for dev tools/debugging.
+   * Issue #12 fix: Expose for dev tools/debugging.
    * @internal (dev tools/debugging only, do not depend on this in UI code)
    */
   getLastSessionTransitionError(): {
