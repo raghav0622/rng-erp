@@ -39,6 +39,7 @@ export interface IAppAuthService {
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
   getCurrentUser(): Promise<AppUser | null>;
   updateOwnerProfile(data: { name?: string; photoUrl?: string }): Promise<AppUser>;
+  updateUserPhoto(userId: string, photo: File | string | undefined): Promise<AppUser>;
   inviteUser(data: CreateInvitedUser): Promise<AppUser>;
   onAuthStateChanged(callback: (session: AuthSession) => void): UnsubscribeFn;
   getSessionSnapshot(): AuthSession;

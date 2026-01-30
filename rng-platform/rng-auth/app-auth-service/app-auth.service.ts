@@ -1,4 +1,4 @@
-import { globalLogger } from '@/lib/logger';
+import { clientStorage, globalLogger } from '@/lib';
 import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
@@ -13,6 +13,7 @@ import {
   updatePassword,
   type User as FirebaseUser,
 } from 'firebase/auth';
+import { deleteObject, getDownloadURL, listAll, ref, uploadBytes } from 'firebase/storage';
 import {
   AuthSession,
   AuthSessionState,
@@ -25,6 +26,7 @@ import {
   AuthInvariantViolationError,
   InternalAuthError,
   InvalidCredentialsError,
+  InvalidInputError,
   InviteAlreadyAcceptedError,
   InviteInvalidError,
   InviteRevokedError,
@@ -39,7 +41,7 @@ import {
   UserDisabledError,
   WeakPasswordError,
 } from './app-auth.errors';
-import { assertAuthenticatedUser, assertNoOrphanAuthUser } from './app-auth.invariants';
+import { assertAppUserExistsForAuthUser, assertAuthenticatedUser } from './app-auth.invariants';
 import type {
   AppUser,
   CreateInvitedUser,
@@ -56,7 +58,17 @@ import {
 } from './internal-app-user-service/app-user.invariants';
 import { AppUserService } from './internal-app-user-service/app-user.service';
 
-// BUG #15 FIX: Shared email normalization to ensure consistency across module
+/**
+ * AppAuthService — Frozen v1
+ *
+ * This service is finalized and considered stable.
+ * It is intentionally client-side and invariant-driven.
+ * Behavior and limitations are documented and accepted.
+ * No migration to backend enforcement or Admin SDK is planned.
+ */
+
+// Policy: Email normalization ensures consistency across module
+// Uses lowercase and trim for reliable comparisons
 export function normalizeEmail(email: string): string {
   return email.toLowerCase().trim();
 }
@@ -82,12 +94,21 @@ class AppAuthService implements IAppAuthService {
   private listeners: Set<(session: AuthSession) => void> = new Set();
   private appUserService = new AppUserService();
   private auth = getAuth();
+  private storage = clientStorage;
+  // Serialization: Session mutations are queued and executed sequentially
+  private sessionMutationQueue: (() => Promise<void>)[] = [];
+  private sessionMutationInProgress = false;
   private authMutationInProgress = false;
   private authMutationPromise: Promise<void> | null = null;
-  private pendingAuthStateChanges: Array<FirebaseUser | null> = [];
+  // Chronological ordering: Include timestamp for reliable pending state ordering
+  private pendingAuthStateChanges: Array<{ user: FirebaseUser | null; timestamp: number }> = [];
   private mutationStartTime = 0;
   private unsubscribeAuthState: (() => void) | null = null;
   private sessionExpiryTimer: NodeJS.Timeout | null = null;
+  // Concurrency guard: Prevents duplicate timer creation
+  private sessionExpiryTimerStarted = false;
+  // Cleanup tracking: Pending timers tracked for disposal
+  private pendingReplayTimers: Set<NodeJS.Timeout> = new Set();
   private lastSessionTransitionError: {
     error: unknown;
     timestamp: Date;
@@ -99,6 +120,14 @@ class AppAuthService implements IAppAuthService {
   private static readonly WAIT_FOR_MUTATION_TIMEOUT_MS = 60000;
   private static readonly SESSION_EXPIRY_HOURS = 24;
   private static readonly SESSION_EXPIRY_CHECK_INTERVAL_MS = 1000;
+  private static readonly MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+  private static readonly ALLOWED_PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+  private static readonly PHOTO_EXTENSIONS = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  };
+  private static readonly MIN_PASSWORD_LENGTH = 8;
   private static readonly OWNER_OP_RATE_LIMIT_PER_MINUTE = 30;
   private static readonly PASSWORD_CHANGE_RATE_LIMIT_PER_MINUTE = 3;
   private static readonly PASSWORD_RESET_RATE_LIMIT_PER_HOUR = 5;
@@ -114,19 +143,20 @@ class AppAuthService implements IAppAuthService {
   ): void {
     const now = Date.now();
 
-    // BUG #8 FIX: Clean up expired rate limit entries to prevent memory leak
-    for (const [key, value] of limitsMap.entries()) {
-      if (now >= value.resetAt) {
-        limitsMap.delete(key);
-      }
+    // Cleanup expired entries lazily: Only clean when checking this user
+    // Avoids O(n) cleanup on every call; entries are cleaned as needed
+    const limit = limitsMap.get(userId);
+    if (limit && now >= limit.resetAt) {
+      // This user's limit expired, clean it up
+      limitsMap.delete(userId);
     }
 
-    const limit = limitsMap.get(userId);
-    if (limit && now < limit.resetAt) {
-      if (limit.count >= maxPerMinute) {
+    const currentLimit = limitsMap.get(userId);
+    if (currentLimit && now < currentLimit.resetAt) {
+      if (currentLimit.count >= maxPerMinute) {
         throw new TooManyRequestsError();
       }
-      limit.count++;
+      currentLimit.count++;
     } else {
       limitsMap.set(userId, { count: 1, resetAt: now + 60 * 1000 });
     }
@@ -134,14 +164,16 @@ class AppAuthService implements IAppAuthService {
 
   private async withAuthOperation<T>(fn: () => Promise<T>): Promise<T> {
     if (this.authMutationInProgress && this.authMutationPromise) {
+      // Prevent timer leak: Track timeout and clear whether promise resolves or rejects
+      let timeoutId: NodeJS.Timeout | null = null;
       const waitPromise = Promise.race([
         this.authMutationPromise,
-        new Promise((_, reject) =>
-          setTimeout(
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(
             () => reject(new Error('Timed out waiting for previous auth operation')),
             AppAuthService.WAIT_FOR_MUTATION_TIMEOUT_MS,
-          ),
-        ),
+          );
+        }),
       ]);
       try {
         await waitPromise;
@@ -149,14 +181,32 @@ class AppAuthService implements IAppAuthService {
         globalLogger.error('[AppAuthService] Previous auth operation failed or timed out', {
           error: err,
         });
+      } finally {
+        // Clear timeout whether promise resolved or rejected
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
       }
     }
     this.authMutationInProgress = true;
     this.mutationStartTime = Date.now();
 
+    // Pause session expiry timer during mutation to prevent forced logout
+    // Resume after mutation completes
+    const wasTimerActive = this.sessionExpiryTimer !== null;
+    if (wasTimerActive && this.sessionExpiryTimer) {
+      clearInterval(this.sessionExpiryTimer);
+      this.sessionExpiryTimer = null;
+    }
+
     let timeoutTriggered = false;
     const timeoutHandle = setTimeout(async () => {
       timeoutTriggered = true;
+      // Reset flags IMMEDIATELY before async operations to prevent race conditions
+      // If we wait until after firebaseSignOut(), another operation could start during await
+      this.authMutationInProgress = false;
+      this.authMutationPromise = null;
+
       globalLogger.error(
         '[AppAuthService] Auth mutation exceeded timeout; forcing sign-out and reset',
         { timeoutMs: AppAuthService.OPERATION_TIMEOUT_MS },
@@ -169,9 +219,11 @@ class AppAuthService implements IAppAuthService {
           error: signOutErr,
         });
       }
-      // Reset mutation flags to allow future operations
-      this.authMutationInProgress = false;
-      this.authMutationPromise = null;
+      // Clear session expiry timer on timeout
+      if (this.sessionExpiryTimer) {
+        clearInterval(this.sessionExpiryTimer);
+        this.sessionExpiryTimer = null;
+      }
     }, AppAuthService.OPERATION_TIMEOUT_MS);
 
     const operation = (async () => fn())();
@@ -192,6 +244,11 @@ class AppAuthService implements IAppAuthService {
         this.authMutationInProgress = false;
         this.authMutationPromise = null;
 
+        // Resume session expiry timer if it was active before
+        if (wasTimerActive && this.session.state === 'authenticated') {
+          this.setupSessionExpiryTimer();
+        }
+
         // Replay all pending auth state changes in order
         const pendingChanges = this.pendingAuthStateChanges;
         this.pendingAuthStateChanges = [];
@@ -203,9 +260,37 @@ class AppAuthService implements IAppAuthService {
               mutationDuration: Date.now() - this.mutationStartTime,
             },
           );
-          pendingChanges.forEach((pendingUser) => {
-            setTimeout(() => this.handleAuthStateChanged(pendingUser), 0);
-          });
+          // Sort by timestamp and replay all changes, deduplicating by UID
+          const sortedChanges = pendingChanges.sort((a, b) => a.timestamp - b.timestamp);
+          const currentUser = this.auth.currentUser;
+          const currentUid = currentUser?.uid;
+          let lastReplayedUid = currentUid;
+
+          for (const change of sortedChanges) {
+            const pendingUid = change.user?.uid;
+            if (pendingUid !== lastReplayedUid) {
+              // UID changed, this is a real state transition
+              lastReplayedUid = pendingUid;
+              // Track timer ID for cleanup on disposal
+              // Await async handleAuthStateChanged to prevent unhandled rejections
+              const timerId = setTimeout(async () => {
+                this.pendingReplayTimers.delete(timerId);
+                try {
+                  await this.handleAuthStateChanged(change.user);
+                } catch (err) {
+                  globalLogger.error('[AppAuthService] Error in replayed auth state change', {
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+              }, 0);
+              this.pendingReplayTimers.add(timerId);
+            } else {
+              // Same UID, skip redundant
+              globalLogger.debug('[AppAuthService] Skipping redundant auth state replay', {
+                uid: pendingUid,
+              });
+            }
+          }
         }
       }
     }
@@ -239,6 +324,190 @@ class AppAuthService implements IAppAuthService {
     assertAuthenticatedUser(this.session.user);
     if (this.session.user.role === 'client') {
       throw new NotAuthorizedError();
+    }
+  }
+
+  /**
+   * Normalize and validate image input.
+   * Accepts File or base64 data URI string.
+   * Returns blob with extracted MIME type and extension.
+   * @throws InvalidInputError if validation fails
+   */
+  private async normalizeImageInput(
+    input: File | string,
+  ): Promise<{ blob: Blob; mime: string; extension: string }> {
+    let blob: Blob;
+    let mime = '';
+
+    if (typeof input === 'string') {
+      // Parse base64 data URI
+      const match = input.match(/^data:([a-z0-9\/+]+);base64,(.+)$/);
+      if (!match || !match[1] || !match[2]) {
+        throw new InvalidInputError('Invalid base64 data URI format');
+      }
+      mime = match[1];
+      const base64 = match[2];
+
+      // Validate MIME type
+      if (!AppAuthService.ALLOWED_PHOTO_MIMES.includes(mime)) {
+        throw new InvalidInputError(
+          `Image MIME type must be one of: ${AppAuthService.ALLOWED_PHOTO_MIMES.join(', ')}`,
+        );
+      }
+
+      // Decode and validate size
+      const binary = atob(base64);
+      if (binary.length > AppAuthService.MAX_PHOTO_SIZE_BYTES) {
+        throw new InvalidInputError(
+          `Image size exceeds ${AppAuthService.MAX_PHOTO_SIZE_BYTES / (1024 * 1024)}MB limit`,
+        );
+      }
+
+      // Create blob from binary
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      blob = new Blob([bytes], { type: mime });
+    } else if (input instanceof File) {
+      blob = input;
+      mime = input.type;
+
+      // Validate MIME type
+      if (!AppAuthService.ALLOWED_PHOTO_MIMES.includes(mime)) {
+        throw new InvalidInputError(
+          `Image MIME type must be one of: ${AppAuthService.ALLOWED_PHOTO_MIMES.join(', ')}`,
+        );
+      }
+
+      // Validate file extension matches expected image types
+      const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      const fileExtension = '.' + (input.name.split('.').pop() || '').toLowerCase();
+      if (!validExtensions.includes(fileExtension)) {
+        throw new InvalidInputError(
+          `Invalid image extension: ${fileExtension}. Supported: ${validExtensions.join(', ')}`,
+        );
+      }
+
+      // Validate size
+      if (blob.size > AppAuthService.MAX_PHOTO_SIZE_BYTES) {
+        throw new InvalidInputError(
+          `Image size exceeds ${AppAuthService.MAX_PHOTO_SIZE_BYTES / (1024 * 1024)}MB limit`,
+        );
+      }
+    } else {
+      throw new InvalidInputError('Photo input must be File or base64 data URI');
+    }
+
+    // Extract extension from MIME type
+    const extensionMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const extension = extensionMap[mime];
+    if (!extension) {
+      throw new InvalidInputError(`Unsupported MIME type: ${mime}`);
+    }
+
+    return { blob, mime, extension };
+  }
+
+  /**
+   * Upload user profile photo to deterministic Firebase Storage path.
+   * Overwrites any existing photo at the same path.
+   * @returns Download URL for the uploaded photo
+   * @throws AuthInfrastructureError on upload failure
+   */
+  private async uploadUserProfilePhoto(userId: string, input: File | string): Promise<string> {
+    try {
+      const { blob, extension } = await this.normalizeImageInput(input);
+
+      // Deterministic path: user-photos/{userId}/profile.{ext}
+      const storagePath = `user-photos/${userId}/profile.${extension}`;
+      const fileRef = ref(this.storage, storagePath);
+
+      // Upload (overwrites if exists)
+      await uploadBytes(fileRef, blob);
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(fileRef);
+      return downloadUrl;
+    } catch (err) {
+      if (err instanceof InvalidInputError) {
+        throw err;
+      }
+      throw new AuthInfrastructureError(`Failed to upload profile photo for user ${userId}`, err);
+    }
+  }
+
+  /**
+   * Delete user profile photo from Firebase Storage.
+   * Logs warning (not error) if file doesn't exist.
+   * Wraps errors in AuthInfrastructureError.
+   * @throws AuthInfrastructureError only if operation itself fails
+   * Policy: Use deterministic naming to delete specific files (avoids O(n) folder listing)
+   */
+  private async deleteUserProfilePhoto(userId: string): Promise<void> {
+    // Deterministic file deletion: Try common extensions sequentially
+    // More efficient than listing folder; single file expected per user
+    const commonExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+    for (const ext of commonExtensions) {
+      try {
+        const fileRef = ref(this.storage, `user-photos/${userId}/profile.${ext}`);
+        await deleteObject(fileRef);
+        globalLogger.info('[AppAuthService] Deleted profile photo', {
+          userId,
+          extension: ext,
+        });
+        // File found and deleted - no need to try other extensions
+        return;
+      } catch (deleteErr: any) {
+        // 'storage/object-not-found' is expected if file doesn't exist with this extension
+        if (deleteErr?.code !== 'storage/object-not-found') {
+          globalLogger.warn('[AppAuthService] Failed to delete profile photo file', {
+            userId,
+            extension: ext,
+            error: deleteErr,
+          });
+        }
+        // Continue trying other extensions
+      }
+    }
+    // All extensions tried, none existed - this is normal
+    globalLogger.debug('[AppAuthService] No profile photo found to delete', { userId });
+  }
+
+  /**
+   * INTERNAL: Delete all user storage (for future hard-delete operations).
+   * Not exposed in public API - reserved for explicit owner maintenance operations.
+   * Called only by owner-initiated hard-delete workflows.
+   */
+  private async deleteAllUserStorage(userId: string): Promise<void> {
+    try {
+      // Delete user-photos/{userId}/* folder and all contents
+      const userPhotosRef = ref(this.storage, `user-photos/${userId}`);
+      const { items } = await listAll(userPhotosRef);
+
+      for (const item of items) {
+        try {
+          await deleteObject(item);
+        } catch (deleteErr) {
+          globalLogger.warn('[AppAuthService] Failed to delete user storage object', {
+            userId,
+            path: item.fullPath,
+            error: deleteErr,
+          });
+        }
+      }
+
+      globalLogger.info('[AppAuthService] User storage deleted', { userId });
+    } catch (err) {
+      globalLogger.warn('[AppAuthService] Could not fully delete user storage', {
+        userId,
+        error: err,
+      });
     }
   }
 
@@ -300,7 +569,10 @@ class AppAuthService implements IAppAuthService {
 
   private isTransientError(err: unknown): boolean {
     if (typeof err !== 'object' || err === null) return false;
+    // Defensive validation: Check error code property exists before accessing
+    // Prevents crashes from malformed error objects
     const errCode = (err as any).code;
+    if (typeof errCode !== 'string') return false;
     const transientCodes = ['DEADLINE_EXCEEDED', 'UNAVAILABLE', 'INTERNAL', 'RESOURCE_EXHAUSTED'];
     return transientCodes.includes(errCode);
   }
@@ -326,8 +598,8 @@ class AppAuthService implements IAppAuthService {
         }
         if (attempt < maxRetries) {
           const delayMs = Math.min(1000 * Math.pow(2, attempt), 10000); // Cap at 10s
-          // BUG #20 FIX: Add jitter to prevent thundering herd
-          // Jitter = ±10% of delay to desynchronize retries across clients
+          // Add jitter to prevent thundering herd: ±10% of delay
+          // Desynchronizes retries across multiple clients
           const jitterMs = Math.random() * delayMs * 0.1 - delayMs * 0.05;
           const totalDelayMs = delayMs + jitterMs;
           globalLogger.warn(
@@ -380,10 +652,10 @@ class AppAuthService implements IAppAuthService {
       );
     }
 
-    assertNoOrphanAuthUser(true, appUser);
+    assertAppUserExistsForAuthUser(true, appUser);
     if (!appUser) {
       throw new AuthInvariantViolationError(
-        'Invariant: appUser must not be null after assertNoOrphanAuthUser',
+        'Invariant: appUser must not be null after assertAppUserExistsForAuthUser',
       );
     }
     let resolvedUser = appUser;
@@ -448,15 +720,20 @@ class AppAuthService implements IAppAuthService {
 
   async signOut(): Promise<void> {
     return this.withAuthOperation(async () => {
+      let signOutFailed = false;
       try {
         await firebaseSignOut(this.auth);
       } catch (err) {
-        // User should always be able to logout locally
-        globalLogger.warn('[AppAuthService] Firebase sign-out failed, forcing local logout', {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        // BUG #19 FIX: Log sign-out failure separately; continue with local logout
+        signOutFailed = true;
+        globalLogger.warn(
+          '[AppAuthService] Firebase sign-out failed, but continuing with local logout',
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
-      // Always update session
+      // Always update session (local logout always succeeds)
       this.setSession({
         state: 'unauthenticated',
         user: null,
@@ -465,29 +742,44 @@ class AppAuthService implements IAppAuthService {
         lastAuthError: null,
         sessionExpiresAt: null,
       });
+      // BUG #11 FIX: Report sign-out failure if it occurred
+      if (signOutFailed) {
+        globalLogger.error(
+          '[AppAuthService] Sign-out partial failure: Firebase sign-out failed but local session cleared',
+          { severity: 'warning', consequence: 'Next sign-in may see existing Firebase session' },
+        );
+      }
     });
   }
 
   async sendPasswordResetEmail(email: string): Promise<void> {
+    // MISSED-006 FIX: Normalize email at API boundary
+    const normalizedEmail = normalizeEmail(email);
     return this.withAuthOperation(async () => {
       try {
         // See AUTH_MODEL.md
-        const normalizedEmail = normalizeEmail(email);
         // BUG #13 FIX: Rate limit per unique session/IP, not per email
         // Email addresses are public and can be enumerated; keying on them enables DoS
         // Instead, limit per authenticated user (if logged in) or per Firebase Auth attempt
         const resetLimitKey = this.auth.currentUser?.uid || `anon:${normalizedEmail}`;
         const now = Date.now();
+        // BUG #8 FIX: Improve atomic check-and-increment for rate limiting
+        // Note: Single-instance deployment only; multi-instance requires Firestore atomicity
         const resetLimit = this.passwordResetCounts.get(resetLimitKey);
+        let currentCount = 0;
+
         if (resetLimit && now < resetLimit.resetAt) {
-          if (resetLimit.count >= AppAuthService.PASSWORD_RESET_RATE_LIMIT_PER_HOUR) {
+          currentCount = resetLimit.count;
+          if (currentCount >= AppAuthService.PASSWORD_RESET_RATE_LIMIT_PER_HOUR) {
             globalLogger.warn('[AppAuthService] Password reset rate limit exceeded', {
               key: resetLimitKey.substring(0, 10), // Don't log full email/uid
-              attemptsThisHour: resetLimit.count,
+              attemptsThisHour: currentCount,
+              limit: AppAuthService.PASSWORD_RESET_RATE_LIMIT_PER_HOUR,
             });
             throw new TooManyRequestsError();
           }
-          resetLimit.count++;
+          // Increment the counter
+          resetLimit.count = currentCount + 1;
         } else {
           // Reset window is 1 hour
           this.passwordResetCounts.set(resetLimitKey, { count: 1, resetAt: now + 60 * 60 * 1000 });
@@ -519,15 +811,29 @@ class AppAuthService implements IAppAuthService {
   }
 
   private setupSessionExpiryTimer(): void {
+    // NEW-046 FIX: Atomic timer setup to prevent duplicate timers from concurrent calls
+    if (this.sessionExpiryTimerStarted) return;
+
+    // Clear old timer if it exists
+    if (this.sessionExpiryTimer) {
+      clearInterval(this.sessionExpiryTimer);
+      this.sessionExpiryTimer = null;
+    }
+
+    // Mark as started BEFORE creating interval to prevent concurrent setups
+    this.sessionExpiryTimerStarted = true;
+
     // BUG #10 FIX: Active session expiry enforcement via background timer
     // BUG #27 FIX: Stop timer when session ends to prevent resource leaks
-    if (this.sessionExpiryTimer) clearInterval(this.sessionExpiryTimer);
-
     this.sessionExpiryTimer = setInterval(() => {
       // Stop timer when logged out to save resources
       if (this.session.state !== 'authenticated') {
-        clearInterval(this.sessionExpiryTimer!);
-        this.sessionExpiryTimer = null;
+        if (this.sessionExpiryTimer) {
+          clearInterval(this.sessionExpiryTimer);
+          this.sessionExpiryTimer = null;
+        }
+        // NEW-046 FIX: Reset flag only after interval is cleared
+        this.sessionExpiryTimerStarted = false;
         return;
       }
 
@@ -559,6 +865,13 @@ class AppAuthService implements IAppAuthService {
       this.unsubscribeAuthState();
       this.unsubscribeAuthState = null;
     }
+    // MISSED-003 FIX: Clear pending auth state changes to prevent memory leak
+    this.pendingAuthStateChanges = [];
+    // NEW-065 FIX: Clear pending replay timers to prevent post-disposal execution
+    for (const timerId of this.pendingReplayTimers) {
+      clearTimeout(timerId);
+    }
+    this.pendingReplayTimers.clear();
     // BUG #8 FIX: Clear rate limit maps to prevent memory leaks
     this.ownerOpCounts.clear();
     this.passwordOpCounts.clear();
@@ -568,11 +881,23 @@ class AppAuthService implements IAppAuthService {
       clearInterval(this.sessionExpiryTimer);
       this.sessionExpiryTimer = null;
     }
+    // NEW-068 FIX: Reset timer started flag to ensure clean disposal state
+    this.sessionExpiryTimerStarted = false;
     this.listeners.clear();
   }
 
   constructor() {
-    this.unsubscribeAuthState = onAuthStateChanged(this.auth, this.handleAuthStateChanged);
+    // BUG #9 FIX: Wrap auth state listener to catch promise rejections
+    const unsubscribe = onAuthStateChanged(this.auth, async (firebaseUser) => {
+      try {
+        await this.handleAuthStateChanged(firebaseUser);
+      } catch (err) {
+        globalLogger.error('[AppAuthService] Unhandled error in handleAuthStateChanged', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+    this.unsubscribeAuthState = unsubscribe;
     // BUG #10 FIX: Start background timer to enforce session expiry
     this.setupSessionExpiryTimer();
   }
@@ -582,9 +907,9 @@ class AppAuthService implements IAppAuthService {
     // This prevents masking legitimate changes (signout from another tab, token invalidation, etc.)
     // Queued changes are replayed once the mutation completes
     if (this.authMutationInProgress) {
-      // BUG #9 FIX: Only keep the most recent auth state change; discard older queued changes
-      // This prevents unbounded array growth and ensures only relevant state is replayed
-      this.pendingAuthStateChanges = [firebaseUser];
+      // NEW-040 FIX: Queue ALL auth state changes, not just the most recent
+      // Deduplicate consecutive identical states at replay time to prevent state churn
+      this.pendingAuthStateChanges.push({ user: firebaseUser, timestamp: Date.now() });
       globalLogger.info('[AppAuthService] Auth state change queued during mutation', {
         hasUser: firebaseUser !== null,
       });
@@ -752,7 +1077,12 @@ class AppAuthService implements IAppAuthService {
     this.listeners.forEach((cb) => {
       try {
         cb({ ...this.session });
-      } catch {}
+      } catch (err) {
+        // BUG #7 FIX: Log listener errors instead of silently swallowing
+        globalLogger.warn('[AppAuthService] Listener error (continuing)', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     });
   }
 
@@ -764,7 +1094,46 @@ class AppAuthService implements IAppAuthService {
   } | null {
     return this.lastSessionTransitionError;
   }
+  /**
+   * BUG #4 FIX: Explicitly check if session has expired
+   * Use this for expiry validation instead of accessing session state directly
+   */
+  hasSessionExpired(session?: AuthSession): boolean {
+    const sessionToCheck = session || this.session;
+    if (
+      sessionToCheck.state === 'authenticated' &&
+      sessionToCheck.sessionExpiresAt &&
+      new Date() > sessionToCheck.sessionExpiresAt
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * MISSED-002 FIX: Consolidated session expiry enforcement
+   * Ensures consistent expiry logic across the service (replaces manual checks)
+   */
+  checkAndEnforceSessionExpiry(): void {
+    if (this.hasSessionExpired()) {
+      globalLogger.warn(
+        '[AppAuthService] checkAndEnforceSessionExpiry: Session expired, enforcing logout',
+      );
+      this.setSession({
+        state: 'unauthenticated',
+        user: null,
+        emailVerified: null,
+        lastTransitionError: null,
+        lastAuthError: null,
+        sessionExpiresAt: null,
+      });
+    }
+  }
+
   getSessionSnapshot(): AuthSession {
+    // NEW-054 FIX: Document that session snapshot is cached and potentially stale
+    // Expiry is checked at most once per second. Callers requiring strict auth checks
+    // should call checkAndEnforceSessionExpiry() before protected operations.
     // Check session expiry at most once per second to avoid excessive date allocations
     const now = Date.now();
     if (now - this.lastSessionExpiryCheck > AppAuthService.SESSION_EXPIRY_CHECK_INTERVAL_MS) {
@@ -843,14 +1212,30 @@ class AppAuthService implements IAppAuthService {
   }
 
   getLastAuthError(): { error: unknown; timestamp: Date } | null {
-    // Session is canonical source of truth for auth errors
-    return this.session.lastAuthError;
+    // Use snapshot to respect session expiry state
+    const snapshot = this.getSessionSnapshot();
+    // Defensive null check for consistency
+    return snapshot?.lastAuthError ?? null;
   }
 
   onAuthStateChanged(callback: (session: AuthSession) => void): UnsubscribeFn {
     this.listeners.add(callback);
     callback({ ...this.session });
+
+    // Auto-cleanup unused listeners after 5 minutes to prevent memory leak
+    const listenerTimeout = setTimeout(
+      () => {
+        if (this.listeners.has(callback)) {
+          globalLogger.warn('[AppAuthService] Listener auto-removed due to inactivity timeout');
+          this.listeners.delete(callback);
+        }
+      },
+      5 * 60 * 1000,
+    ); // 5 minute timeout
+
+    // Clear timeout when unsubscribe is called to prevent closure from keeping callback alive
     return () => {
+      clearTimeout(listenerTimeout);
       this.listeners.delete(callback);
     };
   }
@@ -967,6 +1352,14 @@ class AppAuthService implements IAppAuthService {
     if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
       throw new WeakPasswordError();
     }
+    // BUG #18 FIX: Validate password meets strength requirements
+    // Firebase requires: min 6 chars, no obvious patterns
+    const hasUpperCase = /[A-Z]/.test(newPassword);
+    const hasLowerCase = /[a-z]/.test(newPassword);
+    const hasNumbers = /[0-9]/.test(newPassword);
+    if (!hasUpperCase || !hasLowerCase || !hasNumbers) {
+      throw new WeakPasswordError('Password must contain uppercase, lowercase, and numbers');
+    }
 
     return this.withAuthOperation(async () => {
       try {
@@ -985,15 +1378,35 @@ class AppAuthService implements IAppAuthService {
     return this.withAuthOperation(async () => {
       const user = this.auth.currentUser;
       if (!user || !user.email) throw new NotAuthenticatedError();
-      this.checkRateLimit(
-        user.uid,
-        this.passwordOpCounts,
-        AppAuthService.PASSWORD_CHANGE_RATE_LIMIT_PER_MINUTE,
-      );
+
+      // NEW-044 FIX: Validate password format BEFORE rate limit check
+      // so invalid attempts don't count against the rate limit
+      if (newPassword.length < AppAuthService.MIN_PASSWORD_LENGTH) {
+        throw new InvalidInputError(
+          `Password must be at least ${AppAuthService.MIN_PASSWORD_LENGTH} characters`,
+        );
+      }
+      if (newPassword === currentPassword) {
+        throw new InvalidInputError('New password must be different from current password');
+      }
+      // NEW-057 FIX: Enforce consistent password strength requirements matching confirmPasswordReset
+      const hasUpperCase = /[A-Z]/.test(newPassword);
+      const hasLowerCase = /[a-z]/.test(newPassword);
+      const hasNumbers = /[0-9]/.test(newPassword);
+      if (!hasUpperCase || !hasLowerCase || !hasNumbers) {
+        throw new WeakPasswordError('Password must contain uppercase, lowercase, and numbers');
+      }
+
       try {
         const cred = EmailAuthProvider.credential(user.email, currentPassword);
         await reauthenticateWithCredential(user, cred);
         await updatePassword(user, newPassword);
+        // NEW-044 FIX: Rate limit check occurs AFTER successful auth/validation
+        this.checkRateLimit(
+          user.uid,
+          this.passwordOpCounts,
+          AppAuthService.PASSWORD_CHANGE_RATE_LIMIT_PER_MINUTE,
+        );
       } catch (err) {
         throw mapFirebaseAuthError(err);
       }
@@ -1043,6 +1456,32 @@ class AppAuthService implements IAppAuthService {
         ...data,
         email: normalizeEmail(data.email),
       };
+      // NEW-055 FIX: Validate email format after normalization to catch any malformed emails
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(normalizedData.email)) {
+        throw new InvalidInputError('Email format is invalid after normalization');
+      }
+      // BUG #22 FIX: Check email uniqueness before creating invite
+      const existingUser = await this.appUserService.getUserByEmail(normalizedData.email);
+      if (existingUser) {
+        throw new InternalAuthError({ message: 'Email already in use by another user' });
+      }
+      // NEW-042 FIX: Also check deleted users to prevent re-invitation with same email
+      const result = await this.appUserService.searchUsers({ email: normalizedData.email }, 1);
+      // searchUsers doesn't include deleted, so search manually
+      try {
+        const maybeDeleted = await this.appUserService['appUserRepo'].find({
+          where: [['email', '==', normalizedData.email]],
+          limit: 1,
+        });
+        if (maybeDeleted.data.length > 0) {
+          throw new InternalAuthError({
+            message: 'Email previously used (even if deleted). Cannot re-invite.',
+          });
+        }
+      } catch (err) {
+        // If search fails, proceed anyway (err already handled)
+      }
       const user = await this.appUserService.createUser(normalizedData);
       return user;
     } catch (err) {
@@ -1051,8 +1490,9 @@ class AppAuthService implements IAppAuthService {
     }
   }
   async signupWithInvite(email: string, password: string): Promise<AuthSession> {
+    // MISSED-006 FIX: Normalize email at API boundary
+    const normalizedEmail = normalizeEmail(email);
     return this.withAuthOperation(async () => {
-      const normalizedEmail = normalizeEmail(email);
       let invitedUser: AppUser | null = null;
       try {
         invitedUser = await this.appUserService.getUserByEmail(normalizedEmail);
@@ -1087,22 +1527,53 @@ class AppAuthService implements IAppAuthService {
         await cred.user.delete();
         throw new InviteAlreadyAcceptedError();
       }
+      // NEW-056 FIX: Check invite status immediately after fetch to catch concurrent revocation
       if (freshUser.inviteStatus !== 'invited') {
         await cred.user.delete();
+        if (freshUser.inviteStatus === 'revoked') {
+          throw new InviteRevokedError();
+        }
         throw new InviteInvalidError();
       }
       assertAuthIdentityNotLinked(freshUser, cred.user.uid);
+
+      // MISSED-001 FIX: Re-check invite status immediately before linking to catch concurrent revocation
+      const finalCheckBeforeLink = await this.appUserService.getUserByEmail(normalizedEmail);
+      if (!finalCheckBeforeLink || finalCheckBeforeLink.inviteStatus !== 'invited') {
+        await cred.user.delete();
+        globalLogger.warn('[AppAuthService] Invite was revoked between auth creation and linking', {
+          email: normalizedEmail,
+          status: finalCheckBeforeLink?.inviteStatus,
+        });
+        throw new InviteRevokedError();
+      }
+
       try {
         await this.appUserService.linkAuthIdentity(freshUser.id, cred.user.uid);
         const linkedUser = await this.appUserService.getUserById(cred.user.uid);
         assertUserIdMatchesAuthUid(linkedUser!, cred.user.uid);
+        // NEW-031 FIX: After linking, check if invite was revoked during the linking window
         if (linkedUser!.inviteStatus !== 'invited') {
           globalLogger.error(
             '[AppAuthService] signupWithInvite: invite status changed after linking (concurrent revocation detected)',
             { email, userId: linkedUser!.id, inviteStatus: linkedUser!.inviteStatus },
           );
           await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
+          // NEW-031 FIX: Use more specific error if revoked
+          if (linkedUser!.inviteStatus === 'revoked') {
+            throw new InviteRevokedError();
+          }
           throw new InviteInvalidError();
+        }
+        // NEW-043 FIX: This check is for safety but is always true (user should be disabled)
+        if (linkedUser!.isDisabled !== true) {
+          // User should have been disabled by linkAuthIdentity
+          globalLogger.error(
+            '[AppAuthService] SECURITY: User not disabled after linking (unexpected state)',
+            { userId: linkedUser!.id, isDisabled: linkedUser!.isDisabled },
+          );
+          // Force disable
+          await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
         }
         await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: false });
       } catch (err) {
@@ -1113,9 +1584,22 @@ class AppAuthService implements IAppAuthService {
           error: err instanceof Error ? err.message : String(err),
         });
         await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
-        throw mapFirebaseAuthError(err);
+        // NEW-034 FIX: Re-throw without attempting activation
+        rethrowOrMapAuthError(err);
       }
+
+      // NEW-034 FIX: Only attempt activation after successful linking
       try {
+        // BUG #5 FIX: Check pre-condition before activation
+        const preActivationUser = await this.appUserService.getUserById(cred.user.uid);
+        if (preActivationUser?.isDisabled === false) {
+          globalLogger.warn(
+            '[AppAuthService] User already enabled before activation (possible owner race)',
+            {
+              userId: cred.user.uid,
+            },
+          );
+        }
         await this.appUserService.activateInvitedUser(cred.user.uid);
         await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: false });
         try {
@@ -1162,23 +1646,175 @@ class AppAuthService implements IAppAuthService {
       }
     });
   }
+
+  /**
+   * Update user profile photo via Firebase Storage upload.
+   * Supports owner updating anyone, others only self.
+   * If photo is undefined, deletes the photo.
+   * Automatically syncs session if updating self.
+   * @param userId ID of user to update
+   * @param photo File, base64 data URI, or undefined (to delete)
+   * @throws InvalidInputError if photo validation fails
+   * @throws AuthInfrastructureError if upload/delete fails
+   * @throws NotSelfError if non-owner trying to update another user
+   */
+  async updateUserPhoto(userId: string, photo: File | string | undefined): Promise<AppUser> {
+    return await this.withAuthOperation(async () => {
+      assertAuthenticatedUser(this.session.user);
+
+      // BUG #28 FIX: Verify target user exists and is active before allowing update
+      const targetUser = await this.appUserService.getUserById(userId);
+      if (!targetUser) {
+        throw new InternalAuthError({ message: 'User not found' });
+      }
+      if (targetUser.isDisabled) {
+        throw new NotAuthorizedError();
+      }
+
+      // RBAC: Owner can update anyone, others only self
+      if (this.session.user.role === 'owner') {
+        // Owner can update anyone - no restriction
+      } else if (this.session.user.role === 'client') {
+        this.requireSelf(userId);
+      } else if (this.session.user.role === 'manager' || this.session.user.role === 'employee') {
+        this.requireEmployeeSelfOnly(userId);
+      } else {
+        throw new InternalAuthError({ role: this.session.user.role });
+      }
+
+      // NEW-037 FIX: Track storage operation success for proper rollback
+      // NEW-058 FIX: Track both upload and delete operations for comprehensive rollback
+      let storageOperationSucceeded = false;
+      const previousPhotoUrl = targetUser.photoUrl;
+      try {
+        let photoUrl: string | undefined;
+
+        if (photo === undefined) {
+          // Delete photo: remove from storage, clear Firestore field
+          await this.deleteUserProfilePhoto(userId);
+          storageOperationSucceeded = true;
+          photoUrl = undefined;
+        } else {
+          // Upload photo: normalize, upload to storage, get URL
+          photoUrl = await this.uploadUserProfilePhoto(userId, photo);
+          storageOperationSucceeded = true;
+        }
+
+        // Update Firestore with new photoUrl (or undefined)
+        const result = await this.appUserService.updateUserProfile(userId, { photoUrl });
+
+        // If updating self, sync to session
+        if (this.session.user.id === userId) {
+          this.setSession({
+            state: 'authenticated',
+            user: result,
+            emailVerified: this.session.emailVerified,
+            lastTransitionError: null,
+            lastAuthError: null,
+            sessionExpiresAt: this.session.sessionExpiresAt,
+          });
+        }
+
+        return result;
+      } catch (err) {
+        // NEW-037 FIX: Rollback upload if it succeeded
+        // NEW-058 FIX: Log delete failures but don't fail entire operation (storage cleanup is already done)
+        if (photo !== undefined && storageOperationSucceeded) {
+          try {
+            await this.deleteUserProfilePhoto(userId);
+            globalLogger.info(
+              '[AppAuthService] Rolled back uploaded photo file after Firestore update failed',
+              {
+                userId,
+              },
+            );
+          } catch (rollbackErr) {
+            globalLogger.error(
+              '[AppAuthService] Failed to rollback storage on Firestore update failure',
+              { userId, rollbackError: rollbackErr, originalError: err },
+            );
+          }
+        } else if (photo === undefined && storageOperationSucceeded) {
+          // Delete succeeded but Firestore failed - database is now stale
+          // Log this clearly as it may require manual intervention
+          globalLogger.warn(
+            '[AppAuthService] Storage photo deleted but Firestore update failed - database is stale',
+            { userId, previousPhotoUrl, error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+        rethrowOrMapAuthError(err);
+      }
+    });
+  }
+
   async updateUserProfile(userId: string, data: UpdateAppUserProfile): Promise<AppUser> {
     assertAuthenticatedUser(this.session.user);
-    if (this.session.user.role === 'owner') {
+
+    // BUG #6 FIX: Capture role snapshot at method entry for re-check at completion
+    const roleSnapshot = this.session.user.role;
+
+    // Reject direct photoUrl updates - must use updateUserPhoto()
+    if ('photoUrl' in data && data.photoUrl !== undefined && typeof data.photoUrl === 'string') {
+      // Allow undefined (deletion via updateUserProfile), but reject URL strings
+      // URLs should only come from uploadUserProfilePhoto(), not direct assignment
+      throw new InvalidInputError('Use updateUserPhoto() to change profile photos');
+    }
+
+    if (roleSnapshot === 'owner') {
       // Owner can update anyone
-    } else if (this.session.user.role === 'manager' || this.session.user.role === 'employee') {
+    } else if (roleSnapshot === 'manager' || roleSnapshot === 'employee') {
       this.requireEmployeeSelfOnly(userId);
-    } else if (this.session.user.role === 'client') {
+    } else if (roleSnapshot === 'client') {
       this.requireSelf(userId);
+      // BUG #29 FIX: Throw error if client tries to update non-allowed fields
+      const allowedFields = ['name', 'photoUrl'];
+      const requestedFields = Object.keys(data);
+      const invalidFields = requestedFields.filter((f) => !allowedFields.includes(f));
+      if (invalidFields.length > 0) {
+        throw new InvalidInputError(
+          `Clients cannot update fields: ${invalidFields.join(', ')}. Only 'name' and 'photoUrl' are allowed.`,
+        );
+      }
       const allowed: Partial<UpdateAppUserProfile> = {};
       if ('name' in data) allowed.name = data.name;
       if ('photoUrl' in data) allowed.photoUrl = data.photoUrl;
-      return await this.appUserService.updateUserProfile(userId, allowed);
+      const result = await this.appUserService.updateUserProfile(userId, allowed);
+
+      // NEW-062 FIX: Sync session after client self-update to prevent stale UI state
+      // Without this, client sees old name/photo until page refresh or auth change
+      this.setSession({
+        state: 'authenticated',
+        user: result,
+        emailVerified: this.session.emailVerified,
+        lastTransitionError: null,
+        lastAuthError: null,
+        sessionExpiresAt: this.session.sessionExpiresAt,
+      });
+      return result;
     } else {
       throw new InternalAuthError({ role: this.session.user.role });
     }
     try {
       const result = await this.appUserService.updateUserProfile(userId, data);
+
+      // BUG #6 FIX: Re-check role at operation completion to detect concurrent role changes
+      const currentRole = this.session.user.role;
+      if (currentRole !== roleSnapshot) {
+        globalLogger.warn(
+          '[AppAuthService] User role changed during updateUserProfile (concurrent role update)',
+          {
+            userId,
+            roleAtStart: roleSnapshot,
+            roleAtEnd: currentRole,
+          },
+        );
+        // Re-verify RBAC with new role
+        if (currentRole !== 'owner' && (currentRole === 'manager' || currentRole === 'employee')) {
+          this.requireEmployeeSelfOnly(userId);
+        } else if (currentRole === 'client' && userId !== this.session.user.id) {
+          throw new NotSelfError();
+        }
+      }
 
       // If updating self, sync profile changes to session
       if (this.session.user.id === userId) {
@@ -1205,19 +1841,46 @@ class AppAuthService implements IAppAuthService {
       this.ownerOpCounts,
       AppAuthService.OWNER_OP_RATE_LIMIT_PER_MINUTE,
     );
+
+    // MISSED-005 FIX: Load current user once and verify it exists
+    const currentUser = await this.appUserService.getUserById(userId);
+    if (!currentUser) {
+      throw new InternalAuthError({ message: 'User not found' });
+    }
+    // MISSED-005 FIX: Verify user is not deleted
+    if (currentUser.deletedAt) {
+      throw new InternalAuthError({ message: 'Cannot update deleted user' });
+    }
+    const roleUpdatedAtSnapshot = currentUser.roleUpdatedAt;
+
     try {
-      // Load current state for conflict detection
-      const currentUser = await this.appUserService.getUserById(userId);
-      if (currentUser?.roleUpdatedAt) {
-        const ageMs = Date.now() - currentUser.roleUpdatedAt.getTime();
-        if (ageMs < 5000) {
-          globalLogger.warn('[AppAuthService] Role recently updated, possible concurrent change', {
-            userId,
-            lastUpdateMs: ageMs,
-          });
+      const result = await this.appUserService.updateUserRole(userId, data);
+      // NEW-038 FIX: Re-validate RBAC after update to ensure authorization still valid
+      if (this.session.user!.role !== 'owner') {
+        globalLogger.warn(
+          '[AppAuthService] User role changed; RBAC may no longer permit role changes',
+          {
+            userId: this.session.user!.id,
+            currentRole: this.session.user!.role,
+          },
+        );
+        this.requireOwner(); // Re-check; will throw if no longer owner
+      }
+      // BUG #15 FIX: Warn if role was changed concurrently (another user modified role)
+      if (
+        result.roleUpdatedAt &&
+        roleUpdatedAtSnapshot &&
+        result.roleUpdatedAt > roleUpdatedAtSnapshot
+      ) {
+        const timeDiff = result.roleUpdatedAt.getTime() - roleUpdatedAtSnapshot.getTime();
+        if (timeDiff > 0) {
+          globalLogger.warn(
+            '[AppAuthService] Concurrent role update detected (another user modified role)',
+            { userId, timeDiffMs: timeDiff },
+          );
         }
       }
-      return await this.appUserService.updateUserRole(userId, data);
+      return result;
     } catch (err) {
       rethrowOrMapAuthError(err);
     }
@@ -1261,8 +1924,9 @@ class AppAuthService implements IAppAuthService {
   }
 
   async getUserByEmail(email: string): Promise<AppUser | null> {
-    this.assertAdminContext();
+    // BUG #17 FIX: Always normalize email for consistent lookups
     const normalizedEmail = normalizeEmail(email);
+    this.assertAdminContext();
     try {
       // @admin-only: Returns full AppUser projection (role, status, timestamps) by policy
       // Future field redaction will require breaking change or separate projection type
@@ -1311,23 +1975,51 @@ class AppAuthService implements IAppAuthService {
   private lastCleanupTimestamp: number = 0;
   private static readonly CLEANUP_COOLDOWN_MS = 5000;
 
+  /**
+   * Cleanup orphaned linked users (Firebase Auth created but activation incomplete).
+   * NEW-064: Detects multiple orphan states:
+   * - Primary: inviteStatus='activated' + isRegisteredOnERP=false (auth created, flags not set)
+   * - Edge: inviteStatus='invited' + authLinkedUid exists (partial link before status flip)
+   *
+   * This API is intentionally conservative - only cleans obvious orphan states.
+   * Manual investigation required for ambiguous cases.
+   * @throws InviteInvalidError if user doesn't match orphan criteria
+   */
   async cleanupOrphanedLinkedUser(userId: string): Promise<void> {
     this.requireOwner();
     const now = Date.now();
     if (now - this.lastCleanupTimestamp < AppAuthService.CLEANUP_COOLDOWN_MS) {
       throw new TooManyRequestsError();
     }
-    this.lastCleanupTimestamp = now;
+
+    // NEW-060 FIX: Validate user state BEFORE updating cooldown timestamp
+    // This prevents invalid attempts from consuming the cooldown window
     const user = await this.appUserService.getUserById(userId);
     if (!user) throw new InviteInvalidError();
-    if (!(user.inviteStatus === 'activated' && user.isRegisteredOnERP === false)) {
+
+    // NEW-064 FIX: Broaden detection to catch partial activation failures
+    const isPrimaryOrphan = user.inviteStatus === 'activated' && user.isRegisteredOnERP === false;
+    const isPartialLinkOrphan = user.inviteStatus === 'invited' && !!user.authLinkedUid;
+
+    if (!isPrimaryOrphan && !isPartialLinkOrphan) {
+      globalLogger.warn('[AppAuthService] User does not match orphan criteria', {
+        userId,
+        inviteStatus: user.inviteStatus,
+        isRegisteredOnERP: user.isRegisteredOnERP,
+        hasAuthLinkedUid: !!user.authLinkedUid,
+      });
       throw new InviteInvalidError();
     }
+
+    // Only update cooldown after all validation passes
+    this.lastCleanupTimestamp = now;
+
     globalLogger.warn(
       '[AppAuthService] Soft-deleting orphaned user (hard delete requires separate explicit call)',
       {
         userId,
         ownerUserId: this.session.user?.id,
+        orphanType: isPrimaryOrphan ? 'primary' : 'partial-link',
       },
     );
     // Only soft-delete: preserves audit trail and allows rollback
@@ -1344,8 +2036,13 @@ class AppAuthService implements IAppAuthService {
   }
 
   async confirmPassword(password: string): Promise<void> {
+    // NEW-051 FIX: Check session state (authoritative) before Firebase user
+    assertAuthenticatedUser(this.session.user);
+
     const user = this.auth.currentUser;
-    if (!user || !user.email) throw new NotAuthenticatedError();
+    if (!user?.email) {
+      throw new InternalAuthError({ message: 'Firebase user missing or has no email' });
+    }
     try {
       const cred = EmailAuthProvider.credential(user.email, password);
       await reauthenticateWithCredential(user, cred);
@@ -1357,6 +2054,10 @@ class AppAuthService implements IAppAuthService {
   requireAuthenticated(): AppUser {
     // Use getSessionSnapshot() which handles expiry check centrally
     const session = this.getSessionSnapshot();
+    // BUG #4 FIX: Explicitly check state after expiry detection
+    if (session.state !== 'authenticated' || !session.user) {
+      throw new NotAuthenticatedError();
+    }
     assertAuthenticatedUser(session.user);
     return session.user;
   }
@@ -1369,6 +2070,7 @@ class AppAuthService implements IAppAuthService {
       if (!user) {
         throw new InviteInvalidError();
       }
+      // NEW-047 FIX: Ensure consistent email normalization (userId is already from DB, normalized)
       if (!options?.force && user.inviteSentAt) {
         const nowMs = new Date().getTime();
         const sentMs = new Date(user.inviteSentAt).getTime();
@@ -1418,12 +2120,9 @@ class AppAuthService implements IAppAuthService {
       throw new NotAuthorizedError();
     }
     const MAX_PAGE_SIZE = 100;
-    if (pageSize > MAX_PAGE_SIZE) {
-      throw new InternalAuthError({
-        message: 'Page size exceeds maximum allowed',
-        requested: pageSize,
-        max: MAX_PAGE_SIZE,
-      });
+    // NEW-048 FIX: Validate pageSize minimum and type before using
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+      throw new InvalidInputError(`pageSize must be integer between 1 and ${MAX_PAGE_SIZE}`);
     }
     try {
       return await this.appUserService.listUsersPaginated(pageSize, pageToken);

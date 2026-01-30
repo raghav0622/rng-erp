@@ -5,6 +5,7 @@ export type AppAuthErrorCode =
   | 'auth/email-already-in-use'
   | 'auth/weak-password'
   | 'auth/invalid-email'
+  | 'auth/invalid-input'
   | 'auth/too-many-requests'
   | 'auth/user-disabled'
   | 'auth/session-expired'
@@ -55,6 +56,13 @@ export class InvalidEmailError extends AppAuthError {
   readonly code = 'auth/invalid-email';
   constructor(cause?: unknown) {
     super('Email address is invalid.', cause);
+  }
+}
+
+export class InvalidInputError extends AppAuthError {
+  readonly code = 'auth/invalid-input';
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
   }
 }
 

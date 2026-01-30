@@ -1,62 +1,59 @@
-# Auth Model (Canonical)
+# Auth Model (Frozen v1 Policy)
 
-**Status**: ✅ VERIFIED & PRODUCTION-READY  
-**Last Audited**: January 30, 2026  
-**All Critical Bugs Fixed**: YES (24/24)
+**Status**: ✅ LOCKED (FINAL)  
+**Type**: Policy document (not rationale or explanation)  
+**Immutability**: These invariants are permanent
 
-## Split Authority
+## Canonical Authorities
 
-- **Firebase Auth**: Identity and email verification authority.
-- **AppUser (Firestore)**: ERP user projection and role/activation state.
-- **Mutual Consistency**: Enforced via invariant checks during every auth resolution.
+**Firebase Auth**: Identity and email verification source of truth  
+**Firestore AppUser**: ERP user projection (role, activation state, registration status)  
+**Mutual Consistency**: Validated during every auth resolution via invariant checks
 
-## One-Time AuthUid Linking Rule
+## One-Time AuthUid Linking (Immutable Policy)
 
-Each Firebase Auth user (`authUid`) can be linked exactly once to one AppUser. Links are immutable.
+**Policy**: Each Firebase Auth user (`authUid`) links exactly once to one AppUser. Links are irreversible.
 
-**Implementation**: Enforced by `assertAuthIdentityNotLinked()` + `assertAuthUidNotLinked()` invariants.  
-**Rollback on Failure** (BUG #23 FIX): If soft-delete fails during linking, newly created disabled user is deleted to prevent orphans.
+**Enforcement**: `assertAuthIdentityNotLinked()` + `assertAuthUidNotLinked()` invariants  
+**Rollback Protection**: If soft-delete fails during linking, disabled user copy is deleted automatically  
+**Consequence**: Prevents identity confusion, privilege escalation, and account takeover scenarios
 
-## Email Verification Authority
+## Email Verification Authority (Mirrored, Not Authoritative in Firestore)
 
-`emailVerified` is authoritative in Firebase Auth. Firestore mirrors it during auth resolution. The mirror can lag; Firebase is always the source of truth.
+**Source of Truth**: Firebase Auth (`emailVerified` flag)  
+**Firestore Copy**: Synchronized during `_resolveAuthenticatedUser()`  
+**Sync Mechanism**: Best-effort with 3-attempt retry; non-fatal if sync fails  
+**Guarantee**: Next auth resolution will re-sync email state automatically  
+**Invariant**: `assertEmailVerifiedNotUpdatedArbitrarily()` ensures no arbitrary mutations in Firestore
 
-**Sync Mechanism**:
+**Design Rationale**: Firestore can lag; Firebase Auth is always authoritative. Eventual consistency is acceptable.
 
-- Happens during `_resolveAuthenticatedUser()` only
-- Best-effort retry (3 attempts, non-fatal if fails)
-- Enforced by `assertEmailVerifiedNotUpdatedArbitrarily()` invariant
+## Disabled User Handling (Enforcement in Firestore)
 
-## Disablement Semantics
+**Policy**: `isDisabled` flag enforced at Firestore layer  
+**Session Behavior**: Disabled users may retain existing sessions until next auth resolution  
+**Auth Resolution**: Explicitly checks for disabled users; rejects session if found  
+**Prevention**: Invariant `assertDisabledUserCannotAcceptInvite()` prevents disabled users from activating
 
-`isDisabled` is enforced in Firestore only. Disabled users may keep existing Firebase sessions until the next auth resolution.
+**Design Rationale**: Client-side does not have global session revocation. Sessions clear on next auth check or 24-hour timeout.
 
-**Race Detection** (BUG #24 FIX): Auth resolution explicitly checks for disabled users and rejects session if state shows disablement.
+## Concurrent Sessions (Allowed by Policy)
 
-## Concurrent Sessions
+**Policy**: Multiple concurrent sessions allowed. No global revocation.  
+**Example**: User can be logged in on desktop and mobile simultaneously  
+**Session Lifetime**: 24-hour local UX timeout (not auth revocation)  
+**Disablement**: User disables account but existing sessions remain valid until next auth resolution
 
-Multiple concurrent sessions are allowed. Each device/browser can maintain independent sessions. There is no global session revocation.
+**Design Rationale**: Client-side architecture cannot enforce global revocation. This is an accepted trade-off.
 
-**Session Expiry Model**:
+## Invariants (Canonical)
 
-- 24-hour local UX timeout (set at auth time)
-- Checked in background timer every 5 seconds
-- Checked in `getSessionSnapshot()` for UI interactions
-- Checked in `requireAuthenticated()` for API guards
-- **NOT** auth revocation; Firebase token may remain valid
+These invariants are verified during every auth resolution and operation:
 
-## No Global Revocation
-
-The system does not revoke sessions globally. This is an explicit client-side policy choice documented in [CLIENT_SIDE_LIMITATIONS.md](CLIENT_SIDE_LIMITATIONS.md).
-
----
-
-## Verified Fixes in This Model
-
-✅ BUG #12: Session snapshot returns deep clone (prevents caller mutations)  
-✅ BUG #15: Email normalization shared across module (consistent comparison)  
-✅ BUG #18: Last login update wrapped in try-catch (non-fatal failure)  
-✅ BUG #22: Input validation in password reset (validates before Firebase call)  
-✅ BUG #23: Rollback on auth identity linking failure (prevents orphans)  
-✅ BUG #24: Disabled user detection at auth resolution (prevents unauthorized access)  
-✅ BUG #27: Session timer stops when logged out (resource cleanup)
+- One-time authUid linking (immutable)
+- Auth user ↔ AppUser 1:1 correspondence
+- Email verification synced with Firebase source of truth
+- Disabled users cannot accept invites
+- Invite lifecycle is irreversible (activated, revoked, or expired)
+- No duplicate active emails
+- Session state transitions are guarded

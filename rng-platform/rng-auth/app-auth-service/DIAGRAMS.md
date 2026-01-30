@@ -1,9 +1,10 @@
-# Diagrams (ASCII Only)
+# Diagrams (ASCII Only - Frozen v1)
 
-**Status**: ✅ VERIFIED FLOWS  
-**Last Audited**: January 30, 2026
+**Status**: ✅ LOCKED (FINAL)  
+**Format**: ASCII diagrams only  
+**Purpose**: Document actual flow (not historical issues)
 
-## Auth Resolution Flow (Every Auth State Change)
+## Auth Resolution Flow
 
 ```
 [Firebase Auth State Changed]
@@ -32,14 +33,14 @@
   [Check]  [Verify] [Sync]
   Orphan   AuthUid  Email
            Match    Verified
-           
+
       |
       v
 ┌─────────────────────────────────┐
-│ setSession()                    │
-│ (Validate transition, apply)    │
-│ (BUG #12 FIX: Deep clone)       │
-└──────────────┬──────────────────┘
+│ setSession()                │
+│ (Validate transition)       │
+│ (Apply session state)       │
+└──────────────┬──────────────┘
                |
                v
        [Broadcast to Listeners]
@@ -67,7 +68,7 @@
       success
        v
 ┌─────────────────────────────────────────────┐
-│ linkAuthIdentity() (BUG #23 ROLLBACK FIX)  │
+│ linkAuthIdentity() - Rollback Protected     │
 │ Step 1: Create disabled copy with authUid  │
 │ Step 2: Soft-delete original invite        │
 │ Step 3: If Step 2 fails, ROLLBACK:         │
@@ -98,13 +99,13 @@ inviteStatus
 [Return Authenticated Session]
 ```
 
-## Identity Linking Flow (with Rollback)
+## Identity Linking Flow (Rollback Protected)
 
 ```
 ┌──────────────────────────────────────────────┐
 │ linkAuthIdentity(userId, authUid)            │
-│ (Converts invite → authenticated user)       │
-│ (BUG #23: Rollback on soft-delete failure)   │
+│ (Convert invite to authenticated user)       │
+│ (Includes rollback on soft-delete failure)   │
 └────────────────┬─────────────────────────────┘
                  |
                  v
@@ -138,16 +139,15 @@ inviteStatus
                  |
                  v
     [Linking Complete]
-    [AppUser now has]
-    [id=authUid]
+    [AppUser linked to authUid]
 ```
 
-## Session Expiry Check (Dual Layer - BUG #27 FIX)
+## Session Expiry Check (Dual Layer)
 
 ```
 ┌─────────────────────────────────────────────┐
 │ Background Timer (Every 5 seconds)          │
-│ (BUG #27: Stops when logged out)            │
+│ (Stops when logged out)                     │
 └────────────────┬────────────────────────────┘
                  |
         ┌────────┴─────────┐
@@ -164,13 +164,13 @@ inviteStatus
                     |           |
                     v           v
               [Logout]     [Continue]
-                    
+
 
 AND
 
 ┌─────────────────────────────────────────────┐
 │ getSessionSnapshot() (On UI Render)         │
-│ (BUG #12: Deep clone returned)              │
+│ (Deep clone returned)                       │
 └────────────────┬────────────────────────────┘
                  |
           [Check if expired]
@@ -185,7 +185,7 @@ AND
      snapshot]        snapshot]
 ```
 
-## Session Transition Graph (All Valid Transitions)
+## Session State Machine (Valid Transitions Only)
 
 ```
                      ┌─────────────────────┐
@@ -197,9 +197,8 @@ AND
              │            │            │
              v            v            v
         ┌─────────┐  ┌──────────┐  ┌─────────────┐
-        │   auth  │  │   unauth │  │  authen     │
-        │ enticati│  │enticated │  │ticating    │
-        │ ng      │  │          │  │             │
+        │ auth-   │  │unauth-   │  │authen-      │
+        │ticating │  │enticated │  │ticating     │
         └────┬────┘  └──────────┘  └─────────────┘
              │           ^  │           ^  │
              └───────────┘  │           │  │
@@ -207,9 +206,5 @@ AND
                             (on failure)   │
                                            └──────┐
                                                   |
-                                         [On page reload
-                                          or logout]
-
-Invalid: Cannot go directly unauthenticated → authenticated
-Invalid: Cannot go directly authenticating → unknown
+                                         [On logout/reload]
 ```

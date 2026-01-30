@@ -43,7 +43,7 @@ import {
   assertValidUserSearchQuery,
 } from './app-user.invariants';
 
-import { normalizeEmail } from '../app-auth.service'; // BUG #15 FIX: Import shared normalization
+import { normalizeEmail } from '../app-auth.service'; // Policy: Import shared normalization for consistency
 import { ResendInvite, RevokeInvite } from './app-user.contracts';
 
 class AppUserRepository extends AbstractClientFirestoreRepository<AppUser> {
@@ -180,26 +180,49 @@ export class AppUserService implements IAppUserService {
   async revokeInvite(data: RevokeInvite): Promise<AppUser> {
     const user = await this.appUserRepo.getById(data.userId);
     assertUserExists(user);
-    if (!(user!.inviteStatus === 'invited' && user!.isRegisteredOnERP === false)) {
-      throw new AppUserInvariantViolation('Can only revoke invite if inviteStatus is invited', {
+
+    // Prevent revoking already-activated invites (race condition during concurrent signup)
+    // Once an invite is activated, it cannot be revoked to preserve user access
+    if (user!.inviteStatus === 'activated') {
+      throw new AppUserInvariantViolation(
+        'Cannot revoke already-activated invites (invitation has been accepted by user)',
+        {
+          userId: user!.id,
+          inviteStatus: user!.inviteStatus,
+          context:
+            'Activated invites cannot be revoked. Use updateUserStatus to disable user if needed.',
+        },
+      );
+    }
+
+    if (user!.inviteStatus !== 'invited') {
+      throw new AppUserInvariantViolation('Can only revoke users with inviteStatus=invited', {
         userId: user!.id,
         inviteStatus: user!.inviteStatus,
-        isRegisteredOnERP: user!.isRegisteredOnERP,
       });
     }
-    const now = new Date();
+
     const updated: Partial<AppUser> = {
       inviteStatus: 'revoked',
-      isRegisteredOnERP: false,
     };
     const result = await this.appUserRepo.update(data.userId, updated);
     return result;
   }
   private assertUserState(user: AppUser): void {
-    assertInviteStatusValid(user.inviteStatus);
-    assertRegisteredImpliesActivated(user);
-    assertRevokedImpliesNotRegistered(user);
-    if (user.role === 'owner') assertOwnerInviteStatusActivated(user);
+    // Invariant checks must not be swallowed; they represent state machine violations
+    // Any failure here indicates data corruption and operation must be rejected
+    try {
+      assertInviteStatusValid(user.inviteStatus);
+      assertRegisteredImpliesActivated(user);
+      assertRevokedImpliesNotRegistered(user);
+      if (user.role === 'owner') assertOwnerInviteStatusActivated(user);
+    } catch (err) {
+      globalLogger.error('[AppUserService] State machine violation detected - rejecting update', {
+        error: err instanceof Error ? err.message : String(err),
+        user,
+      });
+      throw err;
+    }
   }
   private calculateRoleTimestamps(
     prev: Pick<AppUser, 'role' | 'roleCategory' | 'roleUpdatedAt' | 'roleCategoryUpdatedAt'> | null,
@@ -230,8 +253,10 @@ export class AppUserService implements IAppUserService {
     });
     assertEmailUniqueAndActive(result.data, email);
     const activeUser = result.data.find((user) => !user.deletedAt) ?? null;
-    // Repository query ensures deletedAt == null, so activeUser should always be valid
-    // Trust the repository contract and return the result
+    // Invariant: Repository query ensures deletedAt == null
+    // Note: Multi-instance soft-delete race is possible - between finding no active user
+    // and creating new user, another instance could restore with same email (eventual consistency).
+    // This is an accepted constraint of client-side design.
     return activeUser;
   }
 
@@ -244,7 +269,18 @@ export class AppUserService implements IAppUserService {
         return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
       }
     }
-    return `invited-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // BUG #16 FIX: UUID v4-like fallback with counter for true uniqueness
+    // Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx where y in [8,9,a,b]
+    const chars = '0123456789abcdef';
+    let id = '';
+    for (let i = 0; i < 32; i++) {
+      if (i === 12)
+        id += '4'; // UUID v4 variant
+      else if (i === 16)
+        id += chars[(Math.random() * 4 + 8) | 0]; // UUID v4 variant
+      else id += chars[(Math.random() * 16) | 0];
+    }
+    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
   }
   async createUser(data: CreateOwnerUser | CreateInvitedUser): Promise<AppUser> {
     // BUG #15 FIX: Use shared email normalization function
@@ -286,6 +322,9 @@ export class AppUserService implements IAppUserService {
     } else {
       assertValidInvitedUserCreation(data);
       const timestamps = this.calculateRoleTimestamps(null, data, now);
+      // Policy: Capture inviteSentAt BEFORE any I/O to prevent timestamp drift on retries
+      // If creation fails and is retried, inviteSentAt should remain consistent
+      const inviteSentAt = new Date();
       user = {
         id: this.generateInviteId(),
         name: data.name,
@@ -299,7 +338,7 @@ export class AppUserService implements IAppUserService {
         isDisabled: false,
         isRegisteredOnERP: false,
         inviteStatus: 'invited',
-        inviteSentAt: now,
+        inviteSentAt: inviteSentAt,
         inviteRespondedAt: undefined,
       };
       // Invited users MUST NOT require authUid
@@ -326,8 +365,11 @@ export class AppUserService implements IAppUserService {
 
     const { id, ...fields } = user!;
 
-    // BUG #23 FIX: Wrap in try-catch to handle rollback on failure
+    // Invariant: Create disabled user and soft-delete original in sequential operations
+    // Atomicity is not guaranteed at client layer; invariants guard state consistency
+    // Future: Use Firestore transaction for true atomic delete + create
     try {
+      // Rollback protection: Wrap in try-catch to detect and handle soft-delete failure
       await this.appUserRepo.create({ ...fields, id: authUid, isDisabled: true });
       const verifyDisabled = await this.appUserRepo.getById(authUid);
       if (!verifyDisabled || !verifyDisabled.isDisabled) {
@@ -339,7 +381,8 @@ export class AppUserService implements IAppUserService {
 
       const softDeleteResult = await this.appUserRepo.update(userId, { deletedAt: new Date() });
       if (!softDeleteResult.deletedAt) {
-        // ROLLBACK: Delete the newly created disabled user on soft-delete failure
+        // Rollback: Delete the newly created disabled user on soft-delete failure
+        // This prevents orphaned disabled users and allows safe retry
         try {
           await this.appUserRepo.delete(authUid);
           globalLogger.warn(
@@ -485,11 +528,16 @@ export class AppUserService implements IAppUserService {
     }
     // Enforce invite lifecycle invariants
     assertInviteSentAtForInvited(user!);
-    // Issue #22 fix: Check invite expiry to prevent stale invite acceptance
+    // Policy: Check invite expiry to prevent stale invite acceptance
+    // Invites expire after 30 days to avoid indefinite unresolved invitations
     if (user!.inviteSentAt) {
       const now = new Date();
       const daysSinceSent = (now.getTime() - user!.inviteSentAt.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSinceSent > AppUserService.INVITE_EXPIRY_DAYS) {
+      // Clock skew tolerance: Add 5-minute grace period to prevent false rejections
+      // Accounts for time drift between client and server clocks
+      const CLOCK_SKEW_MINUTES = 5;
+      const CLOCK_SKEW_DAYS = CLOCK_SKEW_MINUTES / (24 * 60);
+      if (daysSinceSent > AppUserService.INVITE_EXPIRY_DAYS + CLOCK_SKEW_DAYS) {
         throw new AppUserInvariantViolation('Invite has expired', {
           userId,
           inviteSentAt: user!.inviteSentAt,

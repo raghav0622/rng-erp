@@ -1,24 +1,20 @@
 # AppAuthService Internal & Maintenance APIs
 
-**Status**: ✅ COMPREHENSIVE RECOVERY TOOLS  
-**Last Audited**: January 30, 2026  
-**Orphan Prevention**: Enabled (BUG #23 FIX - Rollback on failure)
+**Status**: ✅ FIRST-CLASS OPERATIONAL TOOLS (FROZEN v1)  
+**Policy**: Client-side recovery via owner maintenance APIs  
+**Design**: Orphan prevention + detection + cleanup
 
 ## Scope
 
-This document covers internal-only methods and maintenance operations that exist for client-side recovery.
+Internal methods provide operational tools for client-side recovery. These are first-class components of the architecture, not hidden utilities or debugging features.
 
-## Orphan Prevention (BUG #23 FIX)
+## Orphan Prevention & Handling
 
-The system now includes **automatic rollback** on auth identity linking failures:
+**Prevention**: Rollback logic prevents orphaned disabled users during auth identity linking.
 
-**When Soft-Delete Fails**:
-1. Newly created disabled user is detected
-2. Rollback automatically deletes the disabled user copy
-3. Original invite record remains untouched
-4. User can retry linking (operation is idempotent)
+**How**: If soft-delete fails after disabled user is created, rollback automatically deletes the disabled copy. No orphans remain.
 
-**Result**: Orphaned disabled users are **prevented**, not just detected and cleaned up later.
+**Detection & Cleanup**: Owner APIs identify and remove any orphaned auth users (network failures between Firebase and Firestore).
 
 ## Internal APIs
 
@@ -26,112 +22,104 @@ The system now includes **automatic rollback** on auth identity linking failures
 
 #### `listOrphanedLinkedUsers(): Promise<AppUser[]>`
 
-Lists all orphaned linked users (auth users without matching AppUsers).
+Returns all orphaned auth users (auth exists, Firestore AppUser missing).
 
-**When to use**:
-- Admin dashboards for system health
+**Purpose**:
+
+- System health monitoring
+- Post-incident diagnostics
 - Periodic cleanup jobs
-- Forensics after outages
 
-**Returns**: Array of orphaned AppUser records
+**Scope**: Returns records only; does not auto-delete
 
 #### `cleanupOrphanedLinkedUser(userId: string): Promise<void>`
 
-Soft-deletes an orphaned linked user record.
+Soft-deletes an orphaned user record.
 
-**When to use**:
-- After reviewing `listOrphanedLinkedUsers()` output
-- Manual cleanup (rare due to BUG #23 rollback prevention)
-- Owner-initiated repairs
-
+**Purpose**: Manual cleanup of identified orphans  
 **Protections**:
-- Rate-limited (5 second cooldown between calls)
-- Only works on activated/registered users
+
+- Rate-limited (5 second cooldown)
+- Only works on non-active users
 - Logs owner action for audit trail
 
 ### Diagnostic APIs
 
 #### `getLastAuthError(): { error, timestamp } | null`
 
-Returns the most recent auth resolution failure.
+Returns most recent auth resolution failure.
 
-**When to use**:
-- UI error display (e.g., Firebase timeout during sign in)
-- Telemetry/logging
+**Use Cases**:
+
+- User-facing error messages
+- Telemetry and logging
 - User support investigations
-
-**Error Types**:
-- Firebase Auth errors (network, invalid credentials, etc.)
-- Infrastructure errors (Firestore reads timed out)
-- Business logic errors (orphan detection, invariant violation)
 
 #### `getLastSessionTransitionError(): { error, timestamp, from, to } | null`
 
-Returns the most recent state machine transition error.
+Returns most recent state machine transition violation.
 
-**When to use**:
-- Dev tools / debugging
+**Use Cases**:
+
 - Detecting session state corruption
-- Telemetry for race condition analysis
+- Telemetry for rare concurrency issues
+- Debugging dev tools
 
-**What It Detects**:
-- Invalid state transitions (e.g., `authenticated → authenticating`)
-- Rare concurrency bugs
-- Transient race conditions
+## Known Limitation Scenarios
 
-## Orphaned User Scenarios (Now Prevented)
+### Scenario 1: Partial Auth + Firestore Linking
 
-### Scenario 1: Disabled User Left After Soft-Delete Failure
-**Status**: ✅ NOW PREVENTED (BUG #23)  
-**Mitigation**: Rollback logic automatically cleans up on failure
+**What can happen**: Firebase user created but not linked to AppUser (network failure)  
+**Detection**: `listOrphanedLinkedUsers()` finds orphan  
+**Recovery**: `cleanupOrphanedLinkedUser()` removes it  
+**Prevention**: Rollback logic in `linkAuthIdentity()` prevents this for most cases
 
-### Scenario 2: Auth User Exists Without AppUser
-**Status**: ⚠️ Can still occur (network failure between Firebase and Firestore)  
-**Detection**: `listOrphanedLinkedUsers()` + `cleanupOrphanedLinkedUser()`  
-**Prevention Strategy**: Automatic fallback in future (requires backend support)
+### Scenario 2: Eventual Consistency Mismatch
 
-### Scenario 3: Duplicate Emails Under Concurrency
-**Status**: ⚠️ Can occur (eventual consistency)  
-**Detection**: `assertEmailUniqueAndActive()` invariant  
-**Recovery**: Owner cleanup or user reattempt with different email
+**What can happen**: Firestore AppUser created but temporarily inaccessible (Firestore latency)  
+**Detection**: Auth resolution re-checks on next session update  
+**Recovery**: Automatic on next read; no owner action needed  
+**Prevention**: Retry logic built into `_resolveAuthenticatedUser()`
 
-## Recovery Expectations
+### Scenario 3: Orphan Detection & Cleanup
 
-Owners are responsible for:
+**What can happen**: Orphaned auth user remains after failed linking  
+**Detection**: Periodic `listOrphanedLinkedUsers()` check  
+**Recovery**: Owner calls `cleanupOrphanedLinkedUser()`  
+**Prevention**: Rollback prevents most cases; cleanup APIs handle rest
 
-1. **Monitoring**: Check `listOrphanedLinkedUsers()` periodically
-2. **Investigation**: Review error logs via `getLastAuthError()`
-3. **Repair**: Use `cleanupOrphanedLinkedUser()` for rare orphans
-4. **Prevention**: Ensure invite expiry (30 days) and re-try logic are in place
+## Owner Responsibilities
 
-These are **first-class recovery tools**, not errors to be hidden. The system design expects operators to use them.
+This is an **intentional, observable, and supported recovery model**:
+
+1. **Monitoring**: Check `listOrphanedLinkedUsers()` periodically (suggest: daily)
+2. **Investigation**: Review `getLastAuthError()` for failure patterns
+3. **Repair**: Use `cleanupOrphanedLinkedUser()` for identified orphans
+4. **Prevention**: Ensure user retry logic is in place for failed invites
 
 ## Operational Guidelines
 
-### Daily
-- ✅ Check auth error logs for patterns
-- ✅ Monitor rate limiting metrics (30 owner ops/min, 5 password resets/hour)
+**Daily Checks**:
 
-### Weekly
-- ✅ Run `listOrphanedLinkedUsers()` (should be empty or very small)
-- ✅ Review session timeout events (should increase gradually over time)
+- Monitor auth error logs for patterns
+- Track rate limit metrics
 
-### Monthly
-- ✅ Review failed invite activations (expired/revoked invites)
-- ✅ Audit owner maintenance API usage
+**Weekly Checks**:
 
-### On Outage
-- ✅ Check `getLastAuthError()` for infrastructure failures
-- ✅ Check `getLastSessionTransitionError()` for state corruption
-- ✅ Re-run orphan cleanup if needed
+- Run `listOrphanedLinkedUsers()` (expect empty or very small)
+- Review session timeout events
 
-## Rationale
+**On Failures**:
 
-Client-only systems cannot guarantee atomicity across Auth and Firestore. The design acknowledges this:
+- Check `getLastAuthError()` for infrastructure issues
+- Check `getLastSessionTransitionError()` for state corruption
+- Re-run cleanup if needed
 
-1. **Explicit Failures**: Errors are observable and actionable
-2. **Preventative**: Rollback logic (BUG #23) prevents many failure modes
-3. **Recoverable**: Maintenance APIs enable explicit repair
-4. **Operational**: Recovery is transparent and first-class, not hidden
+## Design Rationale
 
-This is better than silent partial failures or impossible-to-debug edge cases.
+Client-side systems cannot provide atomic Auth + Firestore transactions. This design accepts that constraint:
+
+- **Explicit**: Errors are observable and actionable
+- **Preventative**: Rollback logic prevents most orphaning
+- **Recoverable**: APIs enable transparent repair
+- **Operational**: Recovery is first-class, not hidden

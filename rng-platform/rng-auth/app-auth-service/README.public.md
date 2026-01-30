@@ -17,28 +17,24 @@ The public API is `IAppAuthService` as exported by the platform entry point. Int
 
 ### Error Fields: lastTransitionError vs lastAuthError
 
-**They are different:**
+These fields surface different categories of state management issues:
 
-- **`lastTransitionError`**: Fired when state machine detects invalid transition (e.g., `authenticated → unknown`). This is a guard against bugs, not a user error. Non-fatal.
-- **`lastAuthError`**: Fired when auth resolution fails during `handleAuthStateChanged()` (Firebase listener). This is a real auth failure (network, invalid user, etc.).
+- **`lastTransitionError`**: Recorded when state machine detects invalid transition (e.g., `authenticated → unknown`). This indicates a potential app-level bug (rare). Non-fatal and does not block functionality.
+- **`lastAuthError`**: Recorded when auth resolution fails during Firebase listener. This represents a real auth failure (network, invalid credentials, infrastructure error, etc.).
 
-Use `lastAuthError` to show user-facing error messages. Use `lastTransitionError` for diagnostics and debugging.
+**Usage**: Show `lastAuthError` in user-facing error messages. Use `lastTransitionError` for diagnostics, telemetry, and debugging.
 
-### sessionExpiresAt: Local UX Expiry vs. Auth Revocation
+### sessionExpiresAt: Local UX Timeout (Not Auth Revocation)
 
-**Important Distinction:**
+`sessionExpiresAt` is a **local, client-side session timeout** for UX hygiene. It is **NOT** global session revocation:
 
-- `sessionExpiresAt` is a **local, client-side session timeout** for UX hygiene
-- It is **NOT** auth revocation; Firebase Auth token may remain valid
-- When expired, the session clears from the client UI
-- User may re-authenticate immediately on page reload if Firebase token is still valid
-- This is a feature, not a bug: timeout stale UX sessions while allowing background re-auth
+- **Set**: 24 hours after successful authentication
+- **Checked**: During UI interactions and background timers
+- **On Expiry**: Local session clears from client
+- **Firebase Token**: May remain valid; user can re-authenticate without server-side changes
+- **Design Rationale**: Timeout stale UX sessions while allowing background token refresh
 
-Do not confuse with:
-
-- Firebase Auth token expiry (handled by Firebase SDK)
-- Server-side session revocation (not applicable in this architecture)
-- Account disabling (handled by `isDisabled` flag)
+This is intentional: Firebase tokens auto-refresh; we add client-side UX timeout as a separate concern.
 
 ## Suspense-Friendly Guarantees
 

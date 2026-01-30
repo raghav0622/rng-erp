@@ -1,69 +1,65 @@
-# Client-Side Limitations (Explicit & Accepted)
+# Client-Side Limitations (Frozen v1 - Accepted)
 
-**Status**: ✅ DOCUMENTED & MITIGATED  
-**Last Audited**: January 30, 2026  
-**Mitigation Status**: All critical limitations have recovery paths
+**Status**: ✅ PERMANENT (LOCKED)  
+**Policy**: Client-only architecture is final  
+**Recovery**: Owner maintenance APIs provided for each limitation
 
-This module is client-only by policy. The following constraints are intentional and permanent.
+These are ACCEPTED and PERMANENT constraints. They are not temporary workarounds or planned for backend migration.
 
-## Constraints
+## Permanent Constraints
 
-- No distributed transactions.
-- No atomic Auth + Firestore operations.
-- No server-enforced uniqueness.
-- Eventual consistency windows.
-- No global session revocation.
+- No atomic Auth + Firestore operations
+- No distributed transactions
+- No server-enforced uniqueness
+- Eventual consistency windows (mitigated)
+- No global session revocation (by design)
 
-## Intentional Implementation Patterns
+## Limitation Scenarios & Recovery
 
-- **Soft-delete + recreate during authUid linking** (BUG #23 FIX: now includes rollback)
-- **Temporary disablement during invite activation** (mitigated by invariant checks)
-- **Orphaned AppUsers after partial failures** (owner cleanup APIs provided)
+### 1. Non-Atomic Auth + Firestore Linking
 
-## Limitation Breakdown
+**What can happen**: Firebase Auth user created but Firestore AppUser not linked (network failure)
 
-### 1) Non-Atomic Auth + Firestore
+**Detection**: `listOrphanedLinkedUsers()` identifies orphaned auth users  
+**Recovery**: `cleanupOrphanedLinkedUser()` removes orphaned record  
+**Rollback**: If soft-delete fails during linking, disabled user is automatically deleted  
+**Outcome**: Orphaned disabled users are PREVENTED; orphaned auth users are DETECTABLE and RECOVERABLE
 
-**What can go wrong:** partial updates and orphaned records.  
-**Detection:** invariant checks and orphan listing.  
-**Recovery:** owner cleanup APIs (`listOrphanedLinkedUsers()`, `cleanupOrphanedLinkedUser()`).  
-**Mitigation** (BUG #23): Rollback logic now prevents orphaned disabled users on soft-delete failure.
+### 2. No Server-Enforced Email Uniqueness
 
-### 2) No Server-Enforced Uniqueness
+**What can happen**: Duplicate emails created under concurrent signup  
+**Detection**: `assertEmailUniqueAndActive()` invariant check  
+**Recovery**: Owner manual cleanup or user retry with different email  
+**Mitigation**: Rate limiting on password reset (5/hour per session)
 
-**What can go wrong:** duplicate emails under concurrency.  
-**Detection:** invariant checks on read/query (`assertEmailUniqueAndActive()`).  
-**Recovery:** owner manual cleanup.  
-**Rate Limiting**: Password reset rate limited per session/IP (5/hour), not per email.
+### 3. Eventual Consistency Mismatches
 
-### 3) Eventual Consistency
+**What can happen**: Firestore AppUser temporarily inaccessible or email verification out of sync  
+**Detection**: Automatic comparison to Firebase Auth during auth resolution  
+**Recovery**: Next auth resolution resyncs automatically (3-attempt retry)  
+**Outcome**: Self-healing via subsequent operations
 
-**What can go wrong:** temporary mismatches (e.g., emailVerified).  
-**Detection:** comparison to Firebase Auth source of truth during auth resolution.  
-**Recovery:** next auth resolution resyncs automatically.  
-**Sync Mechanism**: `updateEmailVerified()` called during `_resolveAuthenticatedUser()` with retry logic.
+### 4. Disablement During Invite Activation
 
-### 4) Temporary Disablement During Activation
+**What can happen**: Temporary disabled state if invite activation flow interrupted  
+**Detection**: Invariant checks at auth resolution  
+**Recovery**: Owner repair or user reattempt after invite re-sent  
+**Prevention**: Invite expiry enforced (30 days max)
 
-**What can go wrong:** transient disabled state if flow is interrupted.  
-**Detection:** invariant checks at auth resolution (`assertDisabledUserCannotAcceptInvite()`).  
-**Recovery:** owner repair or user reattempt after invite is re-sent.  
-**Mitigation**: Invite expiry enforced (30 days), preventing stale activation attempts.
+### 5. Concurrent Sessions After Disablement
 
-### 5) Concurrent Session Management
+**What can happen**: User disabled but existing sessions remain active  
+**Detection**: Auth resolution checks disabled status on next operation  
+**Timeline**: Sessions clear on 24-hour UX timeout or page reload  
+**Outcome**: Acceptable for ERP (owner can re-enable before timeout if needed)
 
-**What can go wrong:** User disables account but existing sessions remain valid.  
-**Detection**: Auth resolution checks disabled status (`BUG #24 FIX`).  
-**Recovery**: User will be logged out on next session expiry check (24 hours) or page reload.  
-**Note**: This is acceptable for ERP; user can be re-enabled before timeout.
+## Resource Management
 
-## Performance & Resource Management
+✅ **Memory**: Rate limit maps cleaned per operation (no leaks)  
+✅ **Timers**: Session expiry timer stops when logged out  
+✅ **Listeners**: All Firebase listeners cleared on dispose  
+✅ **Snapshots**: Deep clones prevent accidental caller mutations
 
-✅ **Memory**: Rate limit maps cleaned per operation (no unbounded growth)  
-✅ **Timers**: Session expiry timer stops when logged out (resource cleanup, BUG #27 FIX)  
-✅ **Listeners**: All auth state listeners cleared in `dispose()`  
-✅ **Deep Cloning**: Session snapshots returned as deep clones (prevents caller mutations, BUG #12 FIX)  
+## Policy Summary
 
-## Final Policy Statement
-
-These are ACCEPTED constraints. Client-side recovery via owner maintenance APIs is the designed approach. No backend migration is planned.
+These constraints are **PERMANENT** and **ACCEPTED**. Client-side recovery via owner maintenance APIs is the designed operational model. No backend migration is planned or expected.

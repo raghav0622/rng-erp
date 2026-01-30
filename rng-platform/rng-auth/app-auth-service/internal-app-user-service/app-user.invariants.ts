@@ -353,33 +353,15 @@ export function assertEmailVerifiedNotUpdatedArbitrarily(updates: any): void {
 // A second owner bootstrap attempt will corrupt the system.
 
 export function assertOwnerBootstrapNotInProgress(): void {
-  // This is a placeholder for future multi-instance coordination
-  // Currently, check is done synchronously in AppAuthService.ownerSignUp()
+  // Single-instance guarantee: AppAuthService.ownerSignUp() checks synchronously before Auth user creation
+  // For multi-instance deployments: Requires distributed coordination or Firestore transaction lock
 }
 
-// --- OWNER BOOTSTRAP INVARIANT EXTENDED ---
-//
-// CRITICAL: Only ONE owner can exist in the system.
-// Owner existence must be checked BEFORE any side-effects (Firebase Auth user creation).
-// A second owner bootstrap attempt will corrupt the system.
-//
-// SINGLE-INSTANCE GUARANTEE:
-// This check is performed synchronously in AppAuthService.ownerSignUp() before Firebase Auth user creation.
-// If app runs on single instance (typical), this is safe.
-// For distributed apps (multiple instances), you MUST add distributed locking or Firestore transaction.
+// POLICY: Multiple concurrent sessions are allowed (multiple devices/browsers per user)
+// Each signIn() creates independent session; all remain valid simultaneously
+// User disablement does NOT cascade revoke existing sessions (client-side design)
+// Sessions clear on 24-hour UX timeout or next auth resolution after disablement
 
-// --- CONCURRENT SESSION SEMANTICS ---
-//
-// UNDOCUMENTED: Users can have unlimited concurrent sessions (multiple devices/browsers).
-// Each signIn() creates a new Firebase Auth session; all are valid simultaneously.
-// There is NO session revocation cascade; disabling user doesn't revoke existing sessions.
-// This behavior is acceptable for ERP systems but should be documented per deployment.
-
-// --- INACTIVE USER TRACKING ---
-//
-// MISSING: No lastLoginAt or lastActivityAt fields.
-// Future enhancement needed for:
-// - Identifying inactive users (compliance, security)
-// - Auto-disabling users after inactivity period
-// - Audit logs (when was user last active?)
-// Recommended: Add optional createdAt, lastLoginAt, lastActivityAt fields in v1.x
+// NOTE: Inactive user tracking is not implemented
+// System does not track lastLoginAt or lastActivityAt
+// Consider adding these fields in future versions for audit trails and compliance

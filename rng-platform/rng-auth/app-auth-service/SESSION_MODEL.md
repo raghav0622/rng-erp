@@ -1,8 +1,7 @@
-# AuthSession State Machine
+# AuthSession State Machine (Frozen v1)
 
-**Status**: ✅ VERIFIED & ROBUST  
-**Last Audited**: January 30, 2026  
-**Verification**: All transitions tested, all edge cases mitigated
+**Status**: ✅ LOCKED (FINAL)  
+**Type**: Canonical state machine (not design rationale)
 
 ## States
 
@@ -32,94 +31,71 @@ authenticated
   └→ unauthenticated (user logs out or session expires)
 ```
 
-## Invalid Transitions
+## Invalid Transitions (Guarded)
 
-Invalid transitions are **recorded** and **swallowed**, not thrown. This preserves app stability while retaining diagnostics.
+Invalid transitions are **recorded but not thrown**. This preserves app stability while retaining diagnostics.
 
-**Examples of Invalid**:
+**Examples**:
+
 - `authenticated → authenticating` (cannot start auth while authenticated)
-- `authenticating → unknown` (cannot revert to unknown from authenticating)
+- `authenticating → unknown` (cannot revert to unknown)
 - `unauthenticated → authenticated` (must go through authenticating)
 
-**Handling**: Recorded in `lastTransitionError`, logged, but state update continues. This allows UI to recover from transient bugs without crashing.
+**Handling**: Recorded in `lastTransitionError` field. Logged but does not crash. UI can recover from transient state corruption.
 
-## lastTransitionError
+## lastTransitionError Field
 
-`lastTransitionError` surfaces invalid transitions without crashing the application.
+Records and surfaces invalid state transitions without throwing.
 
-**When It Fires**:
+**When Populated**:
+
 - Caller attempts invalid state transition
-- New session set with lastTransitionError populated
-- Old session state is preserved
-- Next valid transition will clear lastTransitionError
+- New session created with lastTransitionError populated
+- Old session state preserved
+- Next valid transition clears field
 
-**Use Cases**:
-- UI can display "Session state inconsistency detected" (rare)
-- Dev tools can debug race conditions
-- Telemetry can track state machine bugs
+## sessionExpiresAt (Local UX Timeout - Not Revocation)
 
-## sessionExpiresAt (Local UX Expiry) - CRITICAL
+**Policy**: `sessionExpiresAt` is a **local, client-side UX timeout**, not Firebase Auth revocation.
 
-**CRITICAL**: `sessionExpiresAt` is a **local UX session timeout**, not Firebase Auth revocation.
-
-### How It Works
+### Mechanism
 
 - **Set**: 24 hours after successful authentication
-- **Checked**: In three places:
-  1. Background timer every 5 seconds (forces logout if expired)
-  2. `getSessionSnapshot()` on every UI render (returns unauthenticated if expired)
-  3. `requireAuthenticated()` on API guards (throws NotAuthenticatedError if expired)
-- **When Expired**: User is logged out **locally** (session clears)
-- **Firebase Token**: May still be valid; user may re-authenticate on page reload
-- **By Design**: We timeout stale UX sessions, not auth tokens
+- **Checked**:
+  - Background timer every 5 seconds (proactive logout)
+  - `getSessionSnapshot()` on every UI render (defensive check)
+  - `requireAuthenticated()` on API guards
+- **On Expiry**: Local session clears from client
+- **Firebase Token**: May remain valid; user can re-auth on page reload
+- **By Design**: Timeout stale UX sessions while allowing background token refresh
 
-### Distinction from Other Concepts
+### Comparison Table
 
-| Concept | Authority | Scope | Behavior |
-|---------|-----------|-------|----------|
-| `sessionExpiresAt` | AppAuthService | Local UX | 24-hour timeout, forces logout, UI re-auth allowed |
-| Firebase token expiry | Firebase SDK | Auth API | 1-hour default, auto-refreshed by SDK |
-| Account disabled (`isDisabled`) | Firestore | User record | Checked at auth resolution, blocks login |
-| Global revocation | (N/A) | (N/A) | Not implemented (client-side design) |
+| Aspect    | sessionExpiresAt | Firebase Token      | isDisabled                 |
+| --------- | ---------------- | ------------------- | -------------------------- |
+| Authority | AppAuthService   | Firebase SDK        | Firestore                  |
+| Scope     | Local UX         | Auth API            | User record                |
+| Behavior  | 24-hour timeout  | 1-hour auto-refresh | Checked at auth resolution |
 
-### Use Cases
+### Design Rationale
 
-- **Prevent zombie sessions** in long-idle browsers
-- **UX hygiene**: Force re-entry to security-conscious flows (e.g., financial transactions)
-- **Complement Firebase**: Works alongside token expiry for defense-in-depth
+Firebase tokens refresh automatically (short-lived). Client-side UX timeout is a separate concern for stale sessions and security-sensitive flows.
 
-### Why This Design?
+## Concurrent Sessions
 
-Firebase tokens refresh automatically (short-lived). Client-side UX timeout is a separate concern:
-- User may be idle for 24+ hours (e.g., app left open overnight)
-- We want to force re-authentication for security
-- But we don't want to block background sync/pre-fetching
-- Solution: Clear **session** (UX state), allow **token** (auth state) to remain
+Multiple concurrent sessions allowed. Each device/browser maintains independent session.
 
-## Race Condition Mitigation
+**Example**: User logged in on desktop and mobile simultaneously with independent expiry timers
 
-### Timer vs. Snapshot Check
+**No Global Revocation**: Disabling user does not immediately revoke all sessions; takes effect on next auth resolution or 24-hour timeout.
 
-**Race Case**: User's session expires while UI is rendering
+## State Machine Safety
 
-**Dual Layer**:
-1. Background timer checks expiry every 5 seconds (proactive)
-2. `getSessionSnapshot()` checks on render (defensive)
+Transitions are guarded and atomic from UI perspective:
 
-**Outcome**: Session cleared within 5 seconds or on next render, whichever comes first.
-
-### Disabled User During Session
-
-**Race Case**: User disabled by owner while session is active
-
-**Detection**: Auth resolution checks disabled status, clears session on next sign-in attempt (BUG #24 FIX)
-
-## Suspense Safety
-
-State transitions are explicit and stable; consumers can safely suspend on session resolution.
-
-**Why Safe**:
-- State machine transitions are atomic from UI perspective (state changes via `setSession()`)
-- `waitForResolvedSession()` waits until state is non-`unknown`
+- `setSession()` is atomic
 - Listeners broadcast to all subscribers atomically
-- Deep clones prevent accidental mutations (BUG #12 FIX)
+- Deep clones prevent caller mutations
+- Invalid transitions recorded but do not crash
+
+Consumers can safely subscribe to state changes.

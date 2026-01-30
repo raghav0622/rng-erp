@@ -1,8 +1,8 @@
-# Invite Flow (Client-Side)
+# Invite Flow (Frozen v1 - Client-Side)
 
-**Status**: ✅ VERIFIED & ROLLBACK-PROTECTED  
-**Last Audited**: January 30, 2026  
-**Race Mitigation**: Enabled (BUG #23 FIX - Rollback on soft-delete failure)
+**Status**: ✅ LOCKED (FINAL)  
+**Policy**: `signupWithInvite()` is the only canonical acceptance path  
+**Recovery**: Explicit, observable via maintenance APIs
 
 ## Lifecycle
 
@@ -58,65 +58,67 @@ The old `acceptInvite()` method has been removed. Use `signupWithInvite()` as th
 
 ## Non-Atomic Sections (Explicit & Mitigated)
 
-- **Auth + Firestore linking**: Non-atomic, now with rollback (BUG #23)
-- **Activation after linking**: Non-atomic, protected by invariants
-- **Email verification sending**: Non-atomic, but non-fatal (fire-and-forget)
+All Auth + Firestore transitions are non-atomic. Mitigation strategies:
+
+- **Auth + Firestore linking**: Non-atomic. Rollback prevents orphaned disabled users. Orphan detection available.
+- **Activation after linking**: Non-atomic. Protected by invariant checks. Invite expiry prevents stale activation.
+- **Email verification**: Non-atomic (fire-and-forget). Non-fatal if fails.
 
 ## Partial Failure Points & Mitigation
 
 ### Case 1: Auth user created but AppUser not linked
+
 **Happens if**: Network failure after Firebase creation, before linkAuthIdentity  
 **Detection**: `listOrphanedLinkedUsers()` finds auth user with no matching AppUser  
-**Recovery**: Owner can `cleanupOrphanedLinkedUser()` to soft-delete orphan
+**Recovery**: Owner calls `cleanupOrphanedLinkedUser()` to remove it
 
 ### Case 2: AppUser linked but activation fails
+
 **Happens if**: Invariant violation detected during activation  
-**Detection**: Explicit error thrown, user sees "Activation failed" message  
-**Recovery**: User retries invite, which re-runs linkAuthIdentity (idempotent if already linked)
+**Detection**: Explicit error thrown, user sees error message  
+**Recovery**: User retries invite (idempotent if already linked)
 
 ### Case 3: Invite revoked concurrently with linking
+
 **Happens if**: Owner revokes invite after user starts signup  
-**Detection**: Invariant check `assertInviteStatusValid()` detects revoked status  
-**Recovery**: Error thrown, user retries (must be re-invited by owner)
+**Detection**: Invariant check detects revoked status  
+**Recovery**: Error thrown; user must be re-invited by owner
 
-### Case 4: Soft-delete fails during linking (BUG #23 FIX)
+### Case 4: Soft-delete fails during linking
+
 **Happens if**: Firestore write failure after disabled user created  
-**Detection**: Soft-delete result checked, disabled user exists without active record  
-**Recovery**: **ROLLBACK** - newly created disabled user is deleted automatically  
-**Outcome**: No orphaned disabled copy remains
+**Detection**: Rollback mechanism checks and deletes disabled copy  
+**Recovery**: Automatic rollback prevents orphaned disabled user  
+**Outcome**: Operation can be safely retried by user
 
-## Why This Is Acceptable
+## Design Rationale
 
-This system is client-only. Partial failures are expected and are handled via:
+Client-only systems handle partial failures via:
 
 1. **Invariant Detection**: Comprehensive checks catch state corruption
-2. **Explicit Recovery**: Owner maintenance APIs make recovery transparent
-3. **Non-Blocking**: Partial failures don't corrupt system state (thanks to rollback logic)
+2. **Explicit Recovery**: Owner APIs make recovery transparent and first-class
+3. **Automatic Rollback**: Prevents orphaned disabled users
+4. **Idempotency**: User can safely retry failed operations
 
 ## Owner Recovery Workflows
 
 ### Workflow 1: Clean Up Orphaned Auth Users
+
 ```typescript
 const orphans = await authService.listOrphanedLinkedUsers();
 for (const orphan of orphans) {
-  // Inspect and clean up
   await authService.cleanupOrphanedLinkedUser(orphan.id);
 }
 ```
 
 ### Workflow 2: Debug Failed Invitations
+
 ```typescript
 const lastError = authService.getLastAuthError();
-if (lastError) {
-  // Log for investigation
-  console.error('Auth error:', lastError);
-}
+// Log error for investigation
 
 const transitionError = authService.getLastSessionTransitionError();
-if (transitionError) {
-  // Session state corruption detected
-  console.error('Transition error:', transitionError);
-}
+// Check for state machine corruption
 ```
 
-Owners can identify and clean orphaned users using maintenance APIs. This is a designed, first-class operational workflow (not hidden error handling).
+Owners use maintenance APIs as designed, first-class recovery tools.
