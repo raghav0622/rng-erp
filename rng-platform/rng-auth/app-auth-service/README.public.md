@@ -13,6 +13,32 @@ The public API is `IAppAuthService` as exported by the platform entry point. Int
 - `emailVerified`: Firebase Auth source of truth
 - `lastTransitionError`: invalid transition record (non-fatal)
 - `lastAuthError`: most recent auth resolution failure
+- `sessionExpiresAt`: local UX session timeout (24 hours), **NOT** auth revocation
+
+### Error Fields: lastTransitionError vs lastAuthError
+
+**They are different:**
+
+- **`lastTransitionError`**: Fired when state machine detects invalid transition (e.g., `authenticated → unknown`). This is a guard against bugs, not a user error. Non-fatal.
+- **`lastAuthError`**: Fired when auth resolution fails during `handleAuthStateChanged()` (Firebase listener). This is a real auth failure (network, invalid user, etc.).
+
+Use `lastAuthError` to show user-facing error messages. Use `lastTransitionError` for diagnostics and debugging.
+
+### sessionExpiresAt: Local UX Expiry vs. Auth Revocation
+
+**Important Distinction:**
+
+- `sessionExpiresAt` is a **local, client-side session timeout** for UX hygiene
+- It is **NOT** auth revocation; Firebase Auth token may remain valid
+- When expired, the session clears from the client UI
+- User may re-authenticate immediately on page reload if Firebase token is still valid
+- This is a feature, not a bug: timeout stale UX sessions while allowing background re-auth
+
+Do not confuse with:
+
+- Firebase Auth token expiry (handled by Firebase SDK)
+- Server-side session revocation (not applicable in this architecture)
+- Account disabling (handled by `isDisabled` flag)
 
 ## Suspense-Friendly Guarantees
 

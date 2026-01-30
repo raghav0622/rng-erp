@@ -1,8 +1,3 @@
-//
-// NotOwnerError is used strictly for owner-only operations.
-// All other permission failures must use NotAuthorizedError.
-//
-
 import { AuthError } from 'firebase/auth';
 
 export type AppAuthErrorCode =
@@ -19,13 +14,11 @@ export type AppAuthErrorCode =
   | 'auth/invite-already-accepted'
   | 'auth/invite-revoked'
   | 'auth/owner-already-exists'
+  | 'auth/owner-bootstrap-race'
   | 'auth/invariant-violation'
   | 'auth/infrastructure-error'
   | 'auth/internal';
 
-/**
- * Base class for AppAuthService errors. See README.public.md.
- */
 export abstract class AppAuthError extends Error {
   abstract readonly code: AppAuthErrorCode;
   readonly cause?: unknown;
@@ -100,9 +93,15 @@ export class OwnerAlreadyExistsError extends AppAuthError {
   }
 }
 
-/**
- * Invariant violation. See AUTH_MODEL.md and CLIENT_SIDE_LIMITATIONS.md.
- */
+export class OwnerBootstrapRaceDetectedError extends AppAuthError {
+  readonly code = 'auth/owner-bootstrap-race';
+  constructor() {
+    super(
+      'Owner bootstrap race detected: another concurrent signup succeeded first. The orphaned Firebase Auth user has been cleaned up.',
+    );
+  }
+}
+
 export class AuthInvariantViolationError extends AppAuthError {
   readonly code = 'auth/invariant-violation';
   constructor(message: string, cause?: unknown) {
@@ -110,9 +109,6 @@ export class AuthInvariantViolationError extends AppAuthError {
   }
 }
 
-/**
- * Transient infrastructure failure. See CLIENT_SIDE_LIMITATIONS.md.
- */
 export class AuthInfrastructureError extends AppAuthError {
   readonly code = 'auth/infrastructure-error';
   constructor(message: string, cause?: unknown) {
@@ -120,9 +116,6 @@ export class AuthInfrastructureError extends AppAuthError {
   }
 }
 
-/**
- * Internal fallback error. See README.public.md.
- */
 export class InternalAuthError extends AppAuthError {
   readonly code = 'auth/internal';
   constructor(cause?: unknown) {
@@ -199,8 +192,6 @@ export class InviteRevokedError extends AppAuthError {
   }
 }
 
-// NotOwnerError is used strictly for owner-only operations.
-// All other permission failures must use NotAuthorizedError.
 export class NotOwnerError extends AppAuthError {
   readonly code = 'auth/not-authorized';
   constructor() {
@@ -222,9 +213,6 @@ export class NotAuthorizedError extends AppAuthError {
   }
 }
 
-/**
- * Type guard for AppAuthError
- */
 export function isAppAuthError(error: unknown): error is AppAuthError {
   return error instanceof AppAuthError;
 }

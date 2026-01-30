@@ -1,11 +1,3 @@
-/**
- * Public API for rng-platform/modules
- *
- * This is the ONLY entry point for consuming the platform modules.
- * Internal module files MUST NOT be imported directly.
- */
-
-// App Auth Module (primary authentication & user management service)
 import type { IAppAuthService } from './app-auth-service/app-auth.contracts';
 import { appAuthService as appAuthServiceImpl } from './app-auth-service/app-auth.service';
 export type {
@@ -27,6 +19,7 @@ export {
   NotAuthorizedError,
   NotOwnerError,
   NotSelfError,
+  OwnerBootstrapRaceDetectedError,
   SessionExpiredError,
   TooManyRequestsError,
   UserDisabledError,
@@ -34,7 +27,7 @@ export {
 } from './app-auth-service/app-auth.errors';
 export type PublicAppAuthService = Omit<
   IAppAuthService,
-  'listOrphanedLinkedUsers' | 'cleanupOrphanedLinkedUser' | 'getLastAuthStateError'
+  'listOrphanedLinkedUsers' | 'cleanupOrphanedLinkedUser'
 >;
 export const appAuthService: PublicAppAuthService = appAuthServiceImpl;
 
