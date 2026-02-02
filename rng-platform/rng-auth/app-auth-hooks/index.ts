@@ -69,9 +69,11 @@ export {
   useConfirmPasswordReset,
   useOwnerSignUp,
   useSendEmailVerification,
+  useSendEmailVerification as useSendEmailVerificationEmail,
   useSendPasswordResetEmail,
   useSignIn,
   useSignOut,
+  useSignUpWithInvite,
 } from './useAuthMutations';
 
 // User Management Mutations
@@ -115,6 +117,7 @@ export {
   searchUsersSchema,
   sendPasswordResetEmailSchema,
   signInSchema,
+  signUpWithInviteSchema,
   updateOwnerProfileSchema,
   updateUserPhotoSchema,
   updateUserProfileSchema,
@@ -134,6 +137,7 @@ export {
   type SearchUsersInput,
   type SendPasswordResetEmailInput,
   type SignInInput,
+  type SignUpWithInviteInput,
   type UpdateOwnerProfileInput,
   type UpdateUserPhotoInput,
   type UpdateUserProfileInput,
@@ -172,7 +176,6 @@ export {
   InviteAlreadyAcceptedError,
   InviteInvalidError,
   InviteRevokedError,
-  isAppAuthError,
   NotAuthenticatedError,
   NotAuthorizedError,
   NotOwnerError,
@@ -183,4 +186,5 @@ export {
   TooManyRequestsError,
   UserDisabledError,
   WeakPasswordError,
+  isAppAuthError,
 } from '../app-auth-service/app-auth.errors';

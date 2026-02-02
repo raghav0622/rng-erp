@@ -46,6 +46,24 @@ export const confirmPasswordSchema = z.object({
 });
 export type ConfirmPasswordInput = z.infer<typeof confirmPasswordSchema>;
 
+export const signUpWithInviteSchema = z
+  .object({
+    email: z.string().email('Invalid email address'),
+    password: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .regex(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/,
+        'Password must contain uppercase, lowercase, number, and special character',
+      ),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  });
+export type SignUpWithInviteInput = z.infer<typeof signUpWithInviteSchema>;
+
 // Email
 export const sendPasswordResetEmailSchema = z.object({
   email: z.string().email('Invalid email address'),

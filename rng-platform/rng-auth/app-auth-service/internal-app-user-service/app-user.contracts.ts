@@ -1,6 +1,7 @@
 export interface ListUsersPaginatedResult {
   data: AppUser[];
   nextPageToken?: string;
+  hasMore: boolean; // From abstract repo PaginatedResult
 }
 
 import { BaseEntity } from '@/rng-repository';

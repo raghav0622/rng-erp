@@ -32,6 +32,7 @@ export interface IAppAuthService {
     photoUrl?: string;
   }): Promise<AuthSession>;
   signIn(email: string, password: string): Promise<AuthSession>;
+  signupWithInvite(email: string, password: string): Promise<AuthSession>;
   signOut(): Promise<void>;
   sendPasswordResetEmail(email: string): Promise<void>;
   sendEmailVerificationEmail(): Promise<void>;

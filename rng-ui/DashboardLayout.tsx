@@ -1,4 +1,4 @@
-import { notificationService } from '@/lib/notificationService';
+// import { notificationService } from '@/lib/notificationService';
 // import { useAuthService, useAuthState } from '@/rng-firebase/auth/hooks';
 import DarkModeButton from '@/rng-ui/DarkModeButton';
 import { AppShell, Button, Group, Text } from '@mantine/core';
@@ -16,10 +16,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleLogout = async () => {
     try {
       await authService.signOut();
-      notificationService.notify('Logged out');
+      // notificationService.notify('Logged out');
       router.replace('/login');
     } catch (err: any) {
-      notificationService.notify('Logout failed: ' + (err?.message || String(err)));
+      // notificationService.notify('Logout failed: ' + (err?.message || String(err)));
     }
   };
 

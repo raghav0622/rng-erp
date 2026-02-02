@@ -15,7 +15,12 @@
     ".next/dev",
     ".github",
     ".next",
-    ".env.local"
+    ".env.local",
+    ".storybook",
+    ".storybook/main.ts",
+    ".storybook/preview.tsx",
+    ".storybook/vitest.setup.ts",
+    ".vscode"
   ],
   "files.exclude": {
     "**/.git": true,
@@ -33,6 +38,11 @@
     ".next/dev": true,
     ".github": true,
     ".next": true,
-    ".env.local": true
+    ".env.local": true,
+    ".storybook": true,
+    ".storybook/main.ts": true,
+    ".storybook/preview.tsx": true,
+    ".storybook/vitest.setup.ts": true,
+    ".vscode": true
   }
 }

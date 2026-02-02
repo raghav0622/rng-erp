@@ -27,11 +27,11 @@ const OUTPUT_FILE = path.join(ROOT_DIR, 'review_now.ts');
 
 // const INCLUDE_PATHS = ['rng-platform'];
 // const INCLUDE_PATHS = ['rng-repository'];
-const INCLUDE_PATHS = ['rng-platform/rng-auth/app-auth-hooks'];
+const INCLUDE_PATHS = ['rng-platform/rng-auth/app-auth-components'];
 
 const EXCLUDE_DIRS = new Set(['dist', 'build', 'node_modules', 'abstract-client-repository']);
 
-const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.md']);
+const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs']);
 // const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs']);
 
 // ────────────────────────────────────────────────────────────

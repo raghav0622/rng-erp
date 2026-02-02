@@ -148,14 +148,16 @@ export class AppUserService implements IAppUserService {
   async listUsersPaginated(
     pageSize: number,
     pageToken?: string,
-  ): Promise<{ data: AppUser[]; nextPageToken?: string }> {
+  ): Promise<{ data: AppUser[]; nextPageToken?: string; hasMore: boolean }> {
     if (pageToken !== undefined && typeof pageToken !== 'string') {
       throw new AppUserInvariantViolation('Invalid pagination token', { pageToken });
     }
+    // Delegate to abstract repo which uses cursor-based pagination (nextCursor, hasMore)
     const result = await this.appUserRepo.find({ limit: pageSize, startAfter: pageToken });
     return {
       data: result.data,
-      nextPageToken: result.nextCursor,
+      nextPageToken: result.nextCursor, // Translate abstract repo's nextCursor to nextPageToken
+      hasMore: result.hasMore, // Include hasMore flag from abstract repo
     };
   }
   async resendInvite(data: ResendInvite): Promise<AppUser> {

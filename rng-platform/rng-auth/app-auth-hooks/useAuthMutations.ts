@@ -10,6 +10,7 @@ import type {
   OwnerSignUpInput,
   SendPasswordResetEmailInput,
   SignInInput,
+  SignUpWithInviteInput,
 } from './schemas';
 
 /**
@@ -141,6 +142,58 @@ export function useSendEmailVerification() {
     mutationFn: () => appAuthService.sendEmailVerificationEmail(),
     onError: () => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.lastAuthError() });
+    },
+  });
+}
+
+/**
+ * Mutation hook: sign up with invite.
+ * Session-lifecycle mutation: invalidates ALL auth caches on success (authenticated state change).
+ *
+ * Flow:
+ * 1. Verify email exists as invited AppUser (inviteStatus='invited')
+ * 2. Create Firebase Auth user with email/password
+ * 3. Link authUid to existing AppUser document
+ * 4. Update inviteStatus to 'activated'
+ * 5. Set isRegisteredOnERP to true
+ * 6. Handle rollback if linking fails
+ *
+ * Design:
+ * - No invite tokens/codes—uses Firestore AppUser document as source of truth
+ * - One-time authUid linking (immutable)
+ * - Rollback protection for race conditions
+ * - Disabled users cannot sign up
+ *
+ * @example
+ * const signUpWithInvite = useSignUpWithInvite();
+ * await signUpWithInvite.mutateAsync({
+ *   email: 'user@example.com',
+ *   password: 'SecurePass123!',
+ *   confirmPassword: 'SecurePass123!'
+ * });
+ */
+export function useSignUpWithInvite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: SignUpWithInviteInput) => {
+      // Validate passwords match
+      if (data.password !== data.confirmPassword) {
+        return Promise.reject(new Error("Passwords don't match"));
+      }
+
+      // Call service layer to handle:
+      // 1. Lookup AppUser by email
+      // 2. Verify inviteStatus === 'invited'
+      // 3. Create Firebase Auth user
+      // 4. Link authUid to AppUser
+      // 5. Update AppUser (inviteStatus='activated', isRegisteredOnERP=true)
+      // Implementation calls service method that handles all invariants and rollback
+      return appAuthService.signupWithInvite(data.email, data.password);
+    },
+    onSuccess: () => {
+      // Session-lifecycle mutation: invalidate ALL auth caches
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.all });
     },
   });
 }
