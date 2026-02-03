@@ -9,7 +9,7 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
 ];
-const AUTHENTICATED_PATHS = ['/dashboard', '/profile'];
+const AUTHENTICATED_PATHS = ['/dashboard', '/profile', '/signout'];
 
 export async function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();

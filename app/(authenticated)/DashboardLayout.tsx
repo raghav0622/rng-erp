@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuthSession, useSignOut } from '@/rng-platform/rng-auth';
+import { useAuthSession } from '@/rng-platform/rng-auth';
 import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components';
 import DarkModeButton from '@/rng-ui/DarkModeButton';
 import { RNGSideNavLink } from '@/rng-ui/Dashboard/SideNavLink';
@@ -8,6 +8,7 @@ import { RNGUserMenu } from '@/rng-ui/Dashboard/UserMenu';
 import { AppShell, Box, Group, Stack, Text, ThemeIcon, useMantineColorScheme } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconDashboard, IconMenu2 } from '@tabler/icons-react';
+import { useRouter } from 'next/navigation';
 import { ReactNode, useState } from 'react';
 
 interface DashboardLayoutProps {
@@ -68,16 +69,13 @@ function DashboardHeader({
   userEmail: string;
   isMobile: boolean;
 }) {
-  const [menuOpened, setMenuOpened] = useState(false);
-  const [isSigningOut, setIsSigningOut] = useState(false);
-  const { mutateAsync: signout } = useSignOut();
   const { colorScheme } = useMantineColorScheme();
+  const router = useRouter();
   const isDark = colorScheme === 'dark';
 
-  const handleSignOut = async () => {
-    setIsSigningOut(true);
-    await signout();
-    // No need to setIsSigningOut(false) - component will unmount on redirect
+  const handleSignOut = () => {
+    // Navigate to signout page which handles the signout flow
+    router.push('/signout');
   };
 
   return (

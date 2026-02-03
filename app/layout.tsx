@@ -12,6 +12,10 @@ import type { Metadata } from 'next';
 import React, { Suspense } from 'react';
 import { RNGQueryProvider } from '../app-providers/RNGQueryProvider';
 import { SingleInstanceGuard } from '../app-providers/SingleInstanceSafeGuard';
+import { AuthNotificationsProvider } from '../app-providers/AuthNotificationsProvider';
+import { SessionTimeoutProvider } from '../app-providers/SessionTimeoutProvider';
+import { OfflineDetectionProvider } from '../app-providers/OfflineDetectionProvider';
+import { PageTransitionsProvider } from '../app-providers/PageTransitionsProvider';
 import { theme } from '../theme';
 
 export const metadata: Metadata = {
@@ -32,8 +36,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <RNGQueryProvider>
           <MantineProvider theme={theme}>
             <Notifications position="top-right" zIndex={1000} />
+            <PageTransitionsProvider />
+            <AuthNotificationsProvider />
+            <SessionTimeoutProvider />
+            <OfflineDetectionProvider />
             <SingleInstanceGuard>
-              <Suspense fallback={<LoadingOverlay />}>{children}</Suspense>
+              <Suspense fallback={<LoadingOverlay visible />}>{children}</Suspense>
             </SingleInstanceGuard>
           </MantineProvider>
         </RNGQueryProvider>
@@ -41,3 +49,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
