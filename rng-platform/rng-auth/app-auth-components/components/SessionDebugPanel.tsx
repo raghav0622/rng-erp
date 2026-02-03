@@ -3,7 +3,7 @@
 import { Badge, Button, Card, Code, Collapse, Group, Paper, Stack, Text } from '@mantine/core';
 import { IconBug, IconChevronDown, IconChevronUp, IconCopy } from '@tabler/icons-react';
 import { useState } from 'react';
-import { useAuthSession, useGetLastAuthError, useGetSessionSnapshot } from '../../../rng-auth';
+import { useAuthSession, useGetLastAuthError, useGetSessionSnapshot } from '../..';
 
 export interface SessionDebugPanelProps {
   /**

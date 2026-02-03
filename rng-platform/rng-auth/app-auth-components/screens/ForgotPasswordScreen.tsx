@@ -86,7 +86,7 @@ export function ForgotPasswordScreen({ header, footer }: ForgotPasswordScreenPro
           </Paper>
 
           <Group justify="center">
-            <Anchor href="/auth/signin" size="sm">
+            <Anchor href="/signin" size="sm">
               Back to Sign In
             </Anchor>
           </Group>
@@ -139,7 +139,7 @@ export function ForgotPasswordScreen({ header, footer }: ForgotPasswordScreenPro
         </Paper>
 
         <Group justify="center">
-          <Anchor href="/auth/signin" size="sm">
+          <Anchor href="/signin" size="sm">
             Back to Sign In
           </Anchor>
         </Group>

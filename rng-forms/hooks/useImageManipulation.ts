@@ -1,6 +1,5 @@
 'use client';
 
-import imageCompression from 'browser-image-compression';
 import { useCallback, useEffect, useState } from 'react';
 
 export interface ImageManipulationState {
@@ -163,7 +162,6 @@ export function useImageManipulation(file: File | null) {
       const canvasWidth = isRotated90Or270 ? img.height : img.width;
       const canvasHeight = isRotated90Or270 ? img.width : img.height;
 
-      const maxSide = Math.max(img.width, img.height, 1);
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
 
@@ -191,22 +189,7 @@ export function useImageManipulation(file: File | null) {
       });
       const ext = mimeType.includes('/') ? mimeType.split('/')[1] || 'webp' : 'webp';
 
-      // Optional compression for very large outputs (>1MB)
-      const maybeCompressed =
-        blob.size > 1024 * 1024
-          ? await imageCompression(
-              new File([blob], file.name.replace(/\.[^.]+$/, `.${ext}`), { type: mimeType }),
-              {
-                maxSizeMB: 1,
-                maxWidthOrHeight: Math.max(canvas.width, canvas.height, maxSide),
-                useWebWorker: true,
-              },
-            )
-          : blob;
-
-      const finalBlob = maybeCompressed instanceof Blob ? maybeCompressed : blob;
-
-      return new File([finalBlob], file.name.replace(/\.[^.]+$/, `.${ext}`), { type: mimeType });
+      return new File([blob], file.name.replace(/\.[^.]+$/, `.${ext}`), { type: mimeType });
     },
     [
       file,

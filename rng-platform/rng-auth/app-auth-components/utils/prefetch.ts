@@ -16,7 +16,7 @@
 
 import { QueryClient } from '@tanstack/react-query';
 import { authQueryKeys } from '../../app-auth-hooks/keys';
-import { appAuthService } from '../../app-auth-service';
+import { appAuthService } from '../../app-auth-service/app-auth.service';
 
 /**
  * Prefetch user detail by ID

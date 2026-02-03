@@ -5,6 +5,17 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false, // 🛡️ Hide that we are using Next.js
 
+  // 🖼️ IMAGE OPTIMIZATION
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com',
+        pathname: '/v0/b/*/o/**',
+      },
+    ],
+  },
+
   // ⚡ COMPILER OPTIMIZATIONS
   experimental: {
     optimizePackageImports: ['@mantine/core', '@tabler/icons-react'],

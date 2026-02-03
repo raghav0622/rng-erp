@@ -12,7 +12,7 @@ import type { AppAuthError } from '../../app-auth-service/app-auth.errors';
 export interface ResetPasswordScreenProps {
   /**
    * Redirect path after successful reset
-   * @default '/auth/signin'
+   * @default '/signin'
    */
   redirectTo?: string;
   /**
@@ -38,7 +38,7 @@ export interface ResetPasswordScreenProps {
  * <ResetPasswordScreen redirectTo="/auth/signin" />
  */
 export function ResetPasswordScreen({
-  redirectTo = '/auth/signin',
+  redirectTo = '/signin',
   header,
   footer,
 }: ResetPasswordScreenProps) {
@@ -82,7 +82,7 @@ export function ResetPasswordScreen({
             <Text size="sm">
               This reset link is invalid or has expired. Please request a new password reset.
             </Text>
-            <Button component="a" href="/auth/forgot-password" variant="light" size="sm">
+            <Button component="a" href="/forgot-password" variant="light" size="sm">
               Request New Link
             </Button>
           </Stack>

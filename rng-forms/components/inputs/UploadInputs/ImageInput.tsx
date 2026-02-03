@@ -4,7 +4,7 @@ import { globalLogger } from '@/lib';
 import { ActionIcon, Button, Group, Modal, SimpleGrid, Stack, Text, Tooltip } from '@mantine/core';
 import { IconPhoto, IconX } from '@tabler/icons-react';
 import { nanoid } from 'nanoid';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useController, type Control, type FieldValues } from 'react-hook-form';
 import { useImageManipulation } from '../../../hooks/useImageManipulation';
 import type { ImageInputItem } from '../../../types';
@@ -14,7 +14,7 @@ import ImageToolbar from '../../editors/ImageEditor/ImageToolbar';
 
 interface ImageFileItem {
   id: string;
-  file: File;
+  file: File | null;
   preview: string;
 }
 
@@ -83,6 +83,41 @@ export function ImageInputField<TValues extends FieldValues>(
     exportImage,
   } = useImageManipulation(editingFile?.file || null);
 
+  const initializedRef = useRef(false);
+
+  // Helper to update form field from images array
+  const updateFieldValue = useCallback(
+    (imagesList: ImageFileItem[]) => {
+      const value = allowMultiple
+        ? imagesList.map((img) => img.preview)
+        : imagesList[0]?.preview || '';
+      field.onChange(value);
+    },
+    [allowMultiple, field],
+  );
+
+  // Initialize images from existing field value (e.g., URL from database)
+  useEffect(() => {
+    // Only initialize once from field.value
+    if (initializedRef.current) return;
+
+    const value = field.value as unknown;
+    if (!value) return;
+
+    const previews = Array.isArray(value) ? value : [value];
+    const normalized = previews.filter((v) => typeof v === 'string' && v.length > 0) as string[];
+    if (normalized.length === 0) return;
+
+    setImages(
+      normalized.map((preview) => ({
+        id: nanoid(),
+        file: null,
+        preview,
+      })),
+    );
+    initializedRef.current = true;
+  }, [field.value]);
+
   const normalizedFormats = useMemo(
     () =>
       acceptedFormats.map((fmt) => {
@@ -93,16 +128,6 @@ export function ImageInputField<TValues extends FieldValues>(
         return `.${f}`;
       }),
     [acceptedFormats],
-  );
-
-  const setFieldFromImages = useCallback(
-    (nextImages: ImageFileItem[]) => {
-      const value = allowMultiple
-        ? nextImages.map((img) => img.preview)
-        : nextImages[0]?.preview || '';
-      field.onChange(value);
-    },
-    [allowMultiple, field],
   );
 
   const validateFile = useCallback(
@@ -149,20 +174,25 @@ export function ImageInputField<TValues extends FieldValues>(
           };
           setImages((prev) => {
             const next = [...prev, imageItem];
-            setFieldFromImages(next);
+            setTimeout(() => updateFieldValue(next), 0);
             return next;
           });
         };
         reader.readAsDataURL(file);
       });
     },
-    [validateFile, setFieldFromImages],
+    [validateFile, updateFieldValue],
   );
 
-  const handleEditImage = useCallback((id: string) => {
-    setEditingId(id);
-    setIsEditing(true);
-  }, []);
+  const handleEditImage = useCallback(
+    (id: string) => {
+      const target = images.find((img) => img.id === id);
+      if (!target?.file) return;
+      setEditingId(id);
+      setIsEditing(true);
+    },
+    [images],
+  );
 
   const applyFileToState = useCallback(
     (fileToApply: File) =>
@@ -174,14 +204,14 @@ export function ImageInputField<TValues extends FieldValues>(
             const next = prev.map((img) =>
               img.id === editingId ? { ...img, file: fileToApply, preview } : img,
             );
-            setFieldFromImages(next);
+            setTimeout(() => updateFieldValue(next), 0);
             return next;
           });
           resolve();
         };
         reader.readAsDataURL(fileToApply);
       }),
-    [editingId, setFieldFromImages],
+    [editingId, updateFieldValue],
   );
 
   const handleSaveImage = useCallback(async () => {
@@ -242,11 +272,11 @@ export function ImageInputField<TValues extends FieldValues>(
     (id: string) => {
       setImages((prev) => {
         const next = prev.filter((img) => img.id !== id);
-        setFieldFromImages(next);
+        setTimeout(() => updateFieldValue(next), 0);
         return next;
       });
     },
-    [setFieldFromImages],
+    [updateFieldValue],
   );
 
   const handleCancelEdit = useCallback(() => {
@@ -261,13 +291,13 @@ export function ImageInputField<TValues extends FieldValues>(
         const [removed] = newImages.splice(fromIndex, 1);
         if (removed) {
           newImages.splice(toIndex, 0, removed);
-          setFieldFromImages(newImages);
+          setTimeout(() => updateFieldValue(newImages), 0);
           return newImages;
         }
         return prev;
       });
     },
-    [setFieldFromImages],
+    [updateFieldValue],
   );
 
   return (
@@ -337,7 +367,7 @@ export function ImageInputField<TValues extends FieldValues>(
                     height: '100%',
                     objectFit: 'contain',
                     background: '#f5f5f5',
-                    cursor: 'pointer',
+                    cursor: image.file ? 'pointer' : 'default',
                   }}
                   onClick={() => handleEditImage(image.id)}
                 />
@@ -394,20 +424,22 @@ export function ImageInputField<TValues extends FieldValues>(
                   </ActionIcon>
                 </Tooltip>
 
-                <Tooltip label="Edit">
-                  <Button
-                    size="xs"
-                    variant="light"
-                    style={{
-                      position: 'absolute',
-                      top: 4,
-                      left: 4,
-                    }}
-                    onClick={() => handleEditImage(image.id)}
-                  >
-                    ✎
-                  </Button>
-                </Tooltip>
+                {image.file && (
+                  <Tooltip label="Edit">
+                    <Button
+                      size="xs"
+                      variant="light"
+                      style={{
+                        position: 'absolute',
+                        top: 4,
+                        left: 4,
+                      }}
+                      onClick={() => handleEditImage(image.id)}
+                    >
+                      ✎
+                    </Button>
+                  </Tooltip>
+                )}
               </div>
             ))}
           </SimpleGrid>
@@ -427,7 +459,7 @@ export function ImageInputField<TValues extends FieldValues>(
 
       {mergedError && <div style={{ color: 'red', fontSize: '0.875rem' }}>{mergedError}</div>}
 
-      {isEditing && editingFile && (
+      {isEditing && editingFile?.file && (
         <Modal opened={true} onClose={() => setIsEditing(false)} title="Edit Image" size="xl">
           <Group align="flex-start" gap="lg">
             <Stack flex={2} gap="md" w="100%">
@@ -479,7 +511,7 @@ export function ImageInputField<TValues extends FieldValues>(
         </Modal>
       )}
 
-      {isCropping && editingFile && (
+      {isCropping && editingFile?.file && (
         <CropperDialog
           file={editingFile.file}
           onClose={() => setIsCropping(false)}

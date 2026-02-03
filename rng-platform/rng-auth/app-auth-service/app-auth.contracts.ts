@@ -39,7 +39,10 @@ export interface IAppAuthService {
   confirmPasswordReset(code: string, newPassword: string): Promise<void>;
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
   getCurrentUser(): Promise<AppUser | null>;
-  updateOwnerProfile(data: { name?: string; photoUrl?: string }): Promise<AppUser>;
+  updateOwnerProfile(data: {
+    name?: string;
+    photoUrl?: string | File | { url?: string; file?: File } | null;
+  }): Promise<AppUser>;
   updateUserPhoto(userId: string, photo: File | string | undefined): Promise<AppUser>;
   inviteUser(data: CreateInvitedUser): Promise<AppUser>;
   onAuthStateChanged(callback: (session: AuthSession) => void): UnsubscribeFn;

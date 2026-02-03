@@ -14,8 +14,8 @@ export function ScreenContainer({
   footer?: ReactNode;
 }) {
   return (
-    <Container size="xs" py="xl">
-      <Stack gap="xl">
+    <Container size="xs">
+      <Stack>
         {header}
         {children}
         {footer}
@@ -38,9 +38,9 @@ export function ScreenHeader({
   return (
     <Stack gap="xs" align="center">
       <div style={{ color: `var(--mantine-color-${color}-6)` }}>
-        <Icon size={64} />
+        <Icon size={24} />
       </div>
-      <Title order={1}>{title}</Title>
+      <Title order={3}>{title}</Title>
       <Text c="dimmed" size="sm">
         {description}
       </Text>
@@ -70,7 +70,7 @@ export function SuccessMessage({
   }, [redirect, delay, router]);
 
   return (
-    <Container size="xs" py="xl">
+    <Container size="xs">
       <Stack gap="xl">
         <Stack gap="xs" align="center">
           <div style={{ color: 'var(--mantine-color-green-6)' }}>
@@ -103,7 +103,7 @@ export function ErrorAlert({ title, description }: { title: string; description?
     <Alert icon={<IconAlertCircle size={16} />} title={title} color="blue" variant="light">
       <Stack gap="sm">
         {description && <Text size="sm">{description}</Text>}
-        <Button component="a" href="/auth/signin" variant="light" size="sm">
+        <Button component="a" href="/signin" variant="light" size="sm">
           Go to Sign In
         </Button>
       </Stack>
@@ -113,7 +113,7 @@ export function ErrorAlert({ title, description }: { title: string; description?
 
 export function LoadingState({ message }: { message: string }) {
   return (
-    <Container size="xs" py="xl">
+    <Container size="xs">
       <Stack gap="xl" align="center">
         <Loader size="lg" />
         <Text>{message}</Text>
@@ -123,9 +123,5 @@ export function LoadingState({ message }: { message: string }) {
 }
 
 export function FormWrapper({ children }: { children: ReactNode }) {
-  return (
-    <Paper shadow="sm" p="xl" radius="md">
-      {children}
-    </Paper>
-  );
+  return <Paper shadow="sm">{children}</Paper>;
 }

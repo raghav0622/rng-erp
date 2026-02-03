@@ -1,7 +1,7 @@
 'use client';
 
 import { Avatar, Group, Text, Tooltip } from '@mantine/core';
-import { IconUser } from '@tabler/icons-react';
+import Image from 'next/image';
 
 export interface UserAvatarProps {
   /**
@@ -64,13 +64,43 @@ export function UserAvatar({
     return fullName.substring(0, 2).toUpperCase();
   };
 
-  const avatar = (
-    <Avatar src={photoUrl} size={size} radius={radius} alt={name}>
-      {photoUrl ? (
-        <IconUser size={size === 'xs' ? 16 : size === 'sm' ? 20 : 24} />
-      ) : (
-        getInitials(name)
-      )}
+  const getSizeInPx = () => {
+    switch (size) {
+      case 'xs':
+        return 24;
+      case 'sm':
+        return 32;
+      case 'md':
+        return 40;
+      case 'lg':
+        return 56;
+      case 'xl':
+        return 72;
+      default:
+        return 40;
+    }
+  };
+
+  const sizeInPx = getSizeInPx();
+
+  const avatar = photoUrl ? (
+    <Avatar size={size} radius={radius} alt={name}>
+      <Image
+        src={photoUrl}
+        alt={name}
+        width={1024}
+        height={1024}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+        }}
+        priority={false}
+      />
+    </Avatar>
+  ) : (
+    <Avatar size={size} radius={radius} alt={name}>
+      {getInitials(name)}
     </Avatar>
   );
 

@@ -23,7 +23,7 @@ export interface AppUser extends BaseEntity {
   roleCategory?: string;
   roleUpdatedAt: Date;
   roleCategoryUpdatedAt?: Date;
-  photoUrl?: string;
+  photoUrl?: string | null;
   emailVerified: boolean;
   isDisabled: boolean;
   inviteStatus: AppUserInviteStatus;
@@ -53,7 +53,7 @@ export interface DeleteAppUser {
 }
 export interface UpdateAppUserProfile {
   name?: string;
-  photoUrl?: string;
+  photoUrl?: string | null; // null to delete the photo
 }
 export interface UpdateAppUserRole {
   role: AppUserRole;

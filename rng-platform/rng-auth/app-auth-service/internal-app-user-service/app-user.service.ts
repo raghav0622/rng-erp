@@ -302,7 +302,6 @@ export class AppUserService implements IAppUserService {
     const now = new Date();
     let user: Omit<AppUser, 'createdAt' | 'updatedAt'>;
     if (data.role === 'owner') {
-      assertValidOwnerCreation(data);
       assertNoExistingOwner(owner);
       const timestamps = this.calculateRoleTimestamps(null, data, now);
       user = {
@@ -321,6 +320,8 @@ export class AppUserService implements IAppUserService {
         inviteSentAt: undefined,
         inviteRespondedAt: now,
       };
+      // Validate the constructed user object
+      assertValidOwnerCreation(user as AppUser);
     } else {
       assertValidInvitedUserCreation(data);
       const timestamps = this.calculateRoleTimestamps(null, data, now);
@@ -438,8 +439,8 @@ export class AppUserService implements IAppUserService {
     if (user!.role !== 'owner') {
       assertUserIsNotOwner(user!, 'updated');
     }
-    assertEmailNotUpdatable(data);
-    const updated: Partial<AppUser> = { ...data };
+    assertEmailNotUpdatable(data as Partial<AppUser>);
+    const updated: Partial<AppUser> = { ...data } as Partial<AppUser>;
     const result = await this.appUserRepo.update(userId, updated);
     this.assertUserState(result);
     return result;

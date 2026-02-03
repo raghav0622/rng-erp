@@ -20,7 +20,9 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "rng-repository": ["./rng-repository/index.ts"]
+      "rng-repository": ["./rng-repository/index.ts"],
+      "rng-auth/*": ["./rng-platform/rng-auth/*"],
+      "rng-auth": ["./rng-platform/rng-auth"]
     },
 
     // 🛡️ EXTRA SAFETY RULES (Production Hardening)
@@ -37,8 +39,7 @@
     "**/*.d.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts",
-    "core/auth/auth.context.tsx"
+    "**/*.mts"
   ],
   "exclude": ["node_modules"]
 }

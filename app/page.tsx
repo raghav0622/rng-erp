@@ -1,7 +1,7 @@
+'use client';
+
 import { redirect } from 'next/navigation';
 
-export default function RootPage() {
-  //no unauthenticated or public routes.
-
-  return redirect('/dashboard');
+export default function HomePage() {
+  return redirect('/signin');
 }

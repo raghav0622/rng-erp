@@ -12,6 +12,8 @@ export const env = createEnv({
     FIREBASE_PRIVATE_KEY: z.string().min(1),
     SESSION_COOKIE_NAME: z.string().min(1).default('rng_session'),
     SESSION_COOKIE_MAX_AGE_DAYS: z.coerce.number().min(1).default(5),
+    COOKIE_SECRET_CURRENT: z.string().min(32),
+    COOKIE_SECRET_PREVIOUS: z.string().min(32).optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().url(),
@@ -36,5 +38,7 @@ export const env = createEnv({
     NEXT_PUBLIC_FIREBASE_APP_ID: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
     SESSION_COOKIE_NAME: process.env.SESSION_COOKIE_NAME,
     SESSION_COOKIE_MAX_AGE_DAYS: process.env.SESSION_COOKIE_MAX_AGE_DAYS,
+    COOKIE_SECRET_CURRENT: process.env.COOKIE_SECRET_CURRENT,
+    COOKIE_SECRET_PREVIOUS: process.env.COOKIE_SECRET_PREVIOUS,
   },
 });

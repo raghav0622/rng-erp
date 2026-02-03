@@ -104,14 +104,17 @@ export function UpdateUserRoleScreen({
         },
       });
 
-      if (onSuccess && user) {
-        onSuccess(user);
-      }
-
       setShowSuccess(true);
-      setTimeout(() => {
-        router.push(`${backPath}/${userId}`);
-      }, 2000);
+
+      if (onSuccess) {
+        setTimeout(() => {
+          if (user) onSuccess(user);
+        }, 1500);
+      } else {
+        setTimeout(() => {
+          router.push(`${backPath}/${userId}`);
+        }, 2000);
+      }
     } catch (error) {
       const appError = error as any;
       setExternalErrors([appError?.message || 'Failed to update user role']);

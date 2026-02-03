@@ -74,8 +74,8 @@ export function assertValidOwnerCreation(input: Partial<AppUser>): void {
   if (input.role !== 'owner') {
     throw new AppUserInvariantViolation('Owner creation requires role = owner');
   }
-  if (!input.authUid) {
-    throw new AppUserInvariantViolation('Owner creation requires authUid');
+  if (!input.id) {
+    throw new AppUserInvariantViolation('Owner creation requires id (authUid)');
   }
   if (input.inviteStatus !== 'activated') {
     throw new AppUserInvariantViolation('Owner must have inviteStatus = activated');

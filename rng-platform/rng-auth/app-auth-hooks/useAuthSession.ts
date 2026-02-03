@@ -1,14 +1,13 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import type { AuthSession } from '../app-auth-service/app-auth.contracts';
 import { appAuthService } from './internal/authService';
 
 /**
  * Hook to access the current auth session state reactively.
- * Uses useSyncExternalStore to subscribe to appAuthService.onAuthStateChanged observable.
- * Safe for Suspense (does not throw).
- * Returns the current session immediately without waiting for server.
+ * Subscribes to appAuthService.onAuthStateChanged observable.
+ * Returns the current session immediately from snapshot.
  *
  * Use this for REACTIVE access to session state. Component re-renders when session changes.
  * For one-time reads without subscriptions, use useGetSessionSnapshot().
@@ -16,9 +15,20 @@ import { appAuthService } from './internal/authService';
  * @returns Current AuthSession with reactive updates
  */
 export function useAuthSession(): AuthSession {
-  return useSyncExternalStore(
-    (callback) => appAuthService.onAuthStateChanged(callback),
-    () => appAuthService.getSessionSnapshot(),
-    () => appAuthService.getSessionSnapshot(), // SSR snapshot
-  );
+  // Initialize with current snapshot from service
+  const [session, setSession] = useState<AuthSession>(() => appAuthService.getSessionSnapshot());
+
+  useEffect(() => {
+    // Subscribe to auth state changes
+    // Note: onAuthStateChanged does NOT call immediately - the hook gets initial state
+    // from getSessionSnapshot() above. This prevents Firestore consistency issues after mutations.
+    const unsubscribe = appAuthService.onAuthStateChanged((newSession) => {
+      setSession(newSession);
+    });
+
+    // Cleanup subscription on unmount
+    return unsubscribe;
+  }, []);
+
+  return session;
 }

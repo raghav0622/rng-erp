@@ -57,6 +57,10 @@ export interface UserDetailScreenProps {
    */
   editPathPrefix?: string;
   /**
+   * Callback when edit role is clicked (overrides editPathPrefix)
+   */
+  onEditRole?: (userId: string) => void;
+  /**
    * Custom header content
    */
   header?: React.ReactNode;
@@ -65,6 +69,11 @@ export interface UserDetailScreenProps {
    * @default true
    */
   showActions?: boolean;
+  /**
+   * Show edit profile option
+   * @default false
+   */
+  showEditProfile?: boolean;
 }
 
 /**
@@ -84,8 +93,10 @@ export function UserDetailScreen({
   userId,
   backPath = '/users',
   editPathPrefix = '/users/edit',
+  onEditRole,
   header,
   showActions = true,
+  showEditProfile = false,
 }: UserDetailScreenProps) {
   const router = useRouter();
   const { data: user, isLoading } = useGetUserById(userId);
@@ -121,6 +132,14 @@ export function UserDetailScreen({
 
   const handleEdit = () => {
     router.push(`${editPathPrefix}/${userId}`);
+  };
+
+  const handleEditRole = () => {
+    if (onEditRole) {
+      onEditRole(userId);
+    } else {
+      router.push(`${editPathPrefix}/${userId}/role`);
+    }
   };
 
   const [confirmState, setConfirmState] = useState<{
@@ -261,8 +280,13 @@ export function UserDetailScreen({
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>Actions</Menu.Label>
-                <Menu.Item leftSection={<IconPencil size={14} />} onClick={handleEdit}>
-                  Edit Profile
+                {showEditProfile && (
+                  <Menu.Item leftSection={<IconPencil size={14} />} onClick={handleEdit}>
+                    Edit Profile
+                  </Menu.Item>
+                )}
+                <Menu.Item leftSection={<IconUserCheck size={14} />} onClick={handleEditRole}>
+                  Edit Role
                 </Menu.Item>
                 {user.inviteStatus === 'invited' && (
                   <>

@@ -17,6 +17,10 @@ export interface UserListScreenProps {
    */
   invitePath?: string;
   /**
+   * Callback when invite button is clicked (overrides invitePath)
+   */
+  onInvite?: () => void;
+  /**
    * Path pattern for user details (userId will be appended)
    * @default '/users'
    */
@@ -47,6 +51,7 @@ export interface UserListScreenProps {
  */
 export function UserListScreen({
   invitePath = '/users/invite',
+  onInvite,
   detailsPathPrefix = '/users',
   header,
   showInviteButton = true,
@@ -73,7 +78,11 @@ export function UserListScreen({
   };
 
   const handleInviteClick = () => {
-    router.push(invitePath);
+    if (onInvite) {
+      onInvite();
+    } else {
+      router.push(invitePath);
+    }
   };
 
   return (

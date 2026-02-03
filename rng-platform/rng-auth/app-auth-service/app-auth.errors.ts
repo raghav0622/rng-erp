@@ -141,6 +141,8 @@ export function mapFirebaseAuthError(error: unknown): AppAuthError {
   switch (code) {
     case 'auth/user-not-found':
     case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials':
       return new InvalidCredentialsError(error);
 
     case 'auth/email-already-in-use':

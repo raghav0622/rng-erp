@@ -3,7 +3,7 @@
 import { RNGForm, createFormBuilder } from '@/rng-forms';
 import { Button, Loader } from '@mantine/core';
 import { IconPencil } from '@tabler/icons-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useUpdateUserProfile } from '../../app-auth-hooks/useUserManagementMutations';
@@ -36,6 +36,7 @@ const formSchema = {
 };
 
 export interface UpdateUserProfileScreenProps {
+  userId: string;
   backPath?: string;
 }
 
@@ -58,29 +59,19 @@ export interface UpdateUserProfileScreenProps {
  *
  * @example
  * <RequireRole allow={['owner', 'manager']}>
- *   <UpdateUserProfileScreen backPath="/users" />
+ *   <UpdateUserProfileScreen userId="user123" backPath="/users" />
  * </RequireRole>
  */
-export function UpdateUserProfileScreen({ backPath = '/users' }: UpdateUserProfileScreenProps) {
+export function UpdateUserProfileScreen({
+  userId,
+  backPath = '/users',
+}: UpdateUserProfileScreenProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const userId = searchParams.get('userId');
 
-  const { data: user, isLoading: userLoading } = useGetUserById(userId || '');
+  const { data: user, isLoading: userLoading } = useGetUserById(userId);
   const updateProfile = useUpdateUserProfile();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
-
-  if (!userId) {
-    return (
-      <ScreenContainer>
-        <ErrorAlert title="User Not Found" description="No user ID provided in URL" />
-        <Button variant="subtle" mt="lg" onClick={() => router.push(backPath)}>
-          Back
-        </Button>
-      </ScreenContainer>
-    );
-  }
 
   if (userLoading) {
     return <Loader />;

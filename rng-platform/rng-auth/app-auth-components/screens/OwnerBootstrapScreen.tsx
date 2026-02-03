@@ -61,6 +61,11 @@ export function OwnerBootstrapScreen({
 
   return (
     <ScreenContainer header={header} footer={footer}>
+      <Alert icon={<IconAlertCircle size={16} />} color="blue" variant="light">
+        <Text size="sm">
+          <strong>Note:</strong> Owner account has full access and cannot be deleted.
+        </Text>
+      </Alert>
       <FormWrapper>
         <RNGForm
           schema={{
@@ -105,11 +110,6 @@ export function OwnerBootstrapScreen({
           externalErrors={externalErrors}
         />
       </FormWrapper>
-      <Alert icon={<IconAlertCircle size={16} />} color="blue" variant="light">
-        <Text size="sm">
-          <strong>Note:</strong> Owner account has full access and cannot be deleted.
-        </Text>
-      </Alert>
     </ScreenContainer>
   );
 }

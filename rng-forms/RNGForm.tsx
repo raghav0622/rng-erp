@@ -7,14 +7,13 @@ import {
   Button,
   Container,
   Group,
-  Loader,
   Modal,
   Progress,
   Stack,
   Text,
 } from '@mantine/core';
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react';
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   FormProvider,
   useForm,
@@ -297,8 +296,6 @@ export default function RNGForm<TValues extends FieldValues = any>({
   const canSubmit = !readOnly && !isSubmitting && (requireChange !== false ? isDirty : true);
 
   const containerStyles = {
-    paddingTop: 24,
-    paddingBottom: 40,
     width: '100%',
     boxSizing: 'border-box' as const,
     maxWidth: typeof maxWidth === 'number' ? maxWidth : undefined,
@@ -414,22 +411,13 @@ export default function RNGForm<TValues extends FieldValues = any>({
               )}
 
               {/* Form Fields */}
-              <Suspense
-                fallback={
-                  <Group gap="sm">
-                    <Loader size="sm" />
-                    <div>Loading form...</div>
-                  </Group>
-                }
-              >
-                <Stack gap="md">
-                  {schema.items.map((item: RNGFormItem<TValues>, idx: number) => (
-                    <FieldWrapper key={`${item.type}-${idx}`} item={item} />
-                  ))}
-                </Stack>
-              </Suspense>
+              <Stack gap="md">
+                {schema.items.map((item: RNGFormItem<TValues>, idx: number) => (
+                  <FieldWrapper key={`${item.type}-${idx}`} item={item} />
+                ))}
+              </Stack>
 
-              <Group justify="flex-start" gap="md">
+              <Group justify="flex-end" gap="md">
                 <Button
                   type="submit"
                   loading={isSubmitting}

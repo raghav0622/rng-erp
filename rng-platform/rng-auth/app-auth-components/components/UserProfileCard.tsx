@@ -1,58 +1,24 @@
 'use client';
 
 import { Badge, Card, Group, Stack, Text } from '@mantine/core';
-import { IconClock, IconUser } from '@tabler/icons-react';
+import { IconClock } from '@tabler/icons-react';
 import type { AppUser } from '../../app-auth-service/internal-app-user-service/app-user.contracts';
 import { RoleBadge } from './RoleBadge';
 import { UserAvatar } from './UserAvatar';
 
 export interface UserProfileCardProps {
   user: AppUser;
-  /**
-   * Show creation date
-   * @default true
-   */
   showCreatedAt?: boolean;
-  /**
-   * Show role updated date
-   * @default false
-   */
   showRoleUpdatedAt?: boolean;
-  /**
-   * Show registration status
-   * @default true
-   */
   showRegistrationStatus?: boolean;
-  /**
-   * Optional action buttons
-   */
   actions?: React.ReactNode;
 }
 
-/**
- * Rich user profile display card
- *
- * Features:
- * - Large avatar
- * - Full name and email
- * - Role with badge
- * - Registration status
- * - Timestamps
- * - Status indicators
- * - Optional actions
- *
- * @example
- * <UserProfileCard
- *   user={user}
- *   showCreatedAt
- *   actions={<Button>Edit Profile</Button>}
- * />
- */
 export function UserProfileCard({
   user,
-  showCreatedAt = true,
+  showCreatedAt = false,
   showRoleUpdatedAt = false,
-  showRegistrationStatus = true,
+  showRegistrationStatus = false,
   actions,
 }: UserProfileCardProps) {
   const formatDate = (date: Date | undefined) => {
@@ -65,50 +31,37 @@ export function UserProfileCard({
   };
 
   return (
-    <Card withBorder padding="lg" radius="md">
-      <Stack gap="md">
-        {/* Avatar and name */}
-        <Group gap="md">
-          <UserAvatar photoUrl={user.photoUrl} name={user.name} size="xl" />
-          <Stack gap={4}>
-            <Group gap="xs">
-              <Text size="xl" fw={700}>
-                {user.name}
-              </Text>
+    <Card padding="xs" radius="md">
+      <Stack gap="xs">
+        <Group gap="xs">
+          <UserAvatar photoUrl={user.photoUrl} name={user.name} size="lg" />
+          <Stack gap="0">
+            <Text size="md">{user.name}</Text>
+            <Text size="xs" c="dimmed">
+              {user.email}
+            </Text>
+
+            <Group gap="xs" mt="xs">
+              <RoleBadge role={user.role} size="md" />
+
               {user.isDisabled && (
                 <Badge color="red" variant="light">
                   Disabled
                 </Badge>
               )}
-            </Group>
-            <Text size="sm" c="dimmed">
-              {user.email}
-            </Text>
-            {!user.emailVerified && (
-              <Badge size="sm" color="orange" variant="dot">
-                Email not verified
-              </Badge>
-            )}
-          </Stack>
-        </Group>
+              {user.roleCategory && (
+                <Badge variant="dot" color="gray">
+                  {user.roleCategory}
+                </Badge>
+              )}
 
-        {/* Role and status */}
-        <Group gap="md">
-          <RoleBadge role={user.role} size="md" />
-          {user.roleCategory && (
-            <Badge variant="dot" color="gray">
-              {user.roleCategory}
-            </Badge>
-          )}
-          {showRegistrationStatus && (
-            <Badge
-              color={user.isRegisteredOnERP ? 'green' : 'blue'}
-              variant="light"
-              leftSection={<IconUser size={12} />}
-            >
-              {user.isRegisteredOnERP ? 'Registered' : 'Invited'}
-            </Badge>
-          )}
+              {!user.emailVerified && (
+                <Badge size="sm" color="orange" variant="dot">
+                  Email not verified
+                </Badge>
+              )}
+            </Group>
+          </Stack>
         </Group>
 
         {/* Timestamps */}

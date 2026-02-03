@@ -17,11 +17,17 @@ import { handleMutationError } from '../utils/screenHelpers';
 
 export interface InviteUserScreenProps {
   redirectTo?: string;
+  onSuccess?: () => void;
   header?: React.ReactNode;
   footer?: React.ReactNode;
 }
 
-export function InviteUserScreen({ redirectTo = '/users', header, footer }: InviteUserScreenProps) {
+export function InviteUserScreen({
+  redirectTo = '/users',
+  onSuccess,
+  header,
+  footer,
+}: InviteUserScreenProps) {
   const router = useRouter();
   const inviteUser = useInviteUser();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
@@ -36,7 +42,11 @@ export function InviteUserScreen({ redirectTo = '/users', header, footer }: Invi
       await inviteUser.mutateAsync(values);
       setInvitedEmail(values.email);
       setInviteComplete(true);
-      setTimeout(() => router.push(redirectTo), 2000);
+      if (onSuccess) {
+        setTimeout(() => onSuccess(), 1500);
+      } else {
+        setTimeout(() => router.push(redirectTo), 2000);
+      }
     } catch (error) {
       handleMutationError(error, setExternalErrors);
     }
@@ -101,13 +111,6 @@ export function InviteUserScreen({ redirectTo = '/users', header, footer }: Invi
                 label: 'Role Category (Optional)',
                 placeholder: 'e.g., Sales, Engineering, Operations',
                 description: 'Optional category for organizational purposes',
-              },
-              {
-                type: 'image-upload',
-                name: 'photoUrl',
-                label: 'Profile Photo (Optional)',
-                description:
-                  'Upload a profile photo for this team member. Recommended: square image, at least 400x400px',
               },
             ],
           }}

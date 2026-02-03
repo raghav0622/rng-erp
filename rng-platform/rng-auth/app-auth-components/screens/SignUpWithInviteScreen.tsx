@@ -97,7 +97,7 @@ export function SignUpWithInviteScreen({
           showReset={false}
         />
         <Text size="sm" c="dimmed" ta="center" mt="md">
-          Already have an account? <Anchor href="/auth/signin">Sign In</Anchor>
+          Already have an account? <Anchor href="/signin">Sign In</Anchor>
         </Text>
       </FormWrapper>
     </ScreenContainer>

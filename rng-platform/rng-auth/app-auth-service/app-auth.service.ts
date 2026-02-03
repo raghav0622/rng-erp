@@ -414,6 +414,67 @@ class AppAuthService implements IAppAuthService {
   }
 
   /**
+   * Resize image to 1024x1024 for profile photos
+   */
+  private async resizeProfilePhoto(blob: Blob): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+
+        const targetSize = 1024;
+        const canvas = document.createElement('canvas');
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+
+        // Fill white background for JPEG
+        if (blob.type === 'image/jpeg') {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, targetSize, targetSize);
+        }
+
+        // Calculate scaling to fit image maintaining aspect ratio
+        const scale = Math.min(targetSize / img.width, targetSize / img.height);
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
+
+        // Center the image
+        const offsetX = (targetSize - scaledWidth) / 2;
+        const offsetY = (targetSize - scaledHeight) / 2;
+
+        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+
+        canvas.toBlob(
+          (resizedBlob) => {
+            if (resizedBlob) {
+              resolve(resizedBlob);
+            } else {
+              reject(new Error('Failed to resize image'));
+            }
+          },
+          blob.type,
+          0.9,
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load image'));
+      };
+
+      img.src = url;
+    });
+  }
+
+  /**
    * Upload user profile photo to deterministic Firebase Storage path.
    * Overwrites any existing photo at the same path.
    * @returns Download URL for the uploaded photo
@@ -423,12 +484,15 @@ class AppAuthService implements IAppAuthService {
     try {
       const { blob, extension } = await this.normalizeImageInput(input);
 
+      // Resize to 1024x1024 for profile photos
+      const resizedBlob = await this.resizeProfilePhoto(blob);
+
       // Deterministic path: user-photos/{userId}/profile.{ext}
       const storagePath = `user-photos/${userId}/profile.${extension}`;
       const fileRef = ref(this.storage, storagePath);
 
       // Upload (overwrites if exists)
-      await uploadBytes(fileRef, blob);
+      await uploadBytes(fileRef, resizedBlob);
 
       // Get download URL
       const downloadUrl = await getDownloadURL(fileRef);
@@ -597,7 +661,7 @@ class AppAuthService implements IAppAuthService {
           throw err; // Fail fast on permanent errors
         }
         if (attempt < maxRetries) {
-          const delayMs = Math.min(1000 * Math.pow(2, attempt), 10000); // Cap at 10s
+          const delayMs = Math.min(1000 * Math.pow(2, attempt), 5000); // Cap at 5s per attempt
           // Add jitter to prevent thundering herd: ±10% of delay
           // Desynchronizes retries across multiple clients
           const jitterMs = Math.random() * delayMs * 0.1 - delayMs * 0.05;
@@ -634,11 +698,14 @@ class AppAuthService implements IAppAuthService {
 
   private async _resolveAuthenticatedUser(firebaseUser: FirebaseUser): Promise<AppUser> {
     // Load AppUser from Firestore. See AUTH_MODEL.md.
+    // After mutations like owner signup, Firestore writes may have consistency delays
+    // Use more retries to give the backend time to propagate writes
     let appUser: AppUser | null = null;
     try {
       appUser = await this.retryWithBackoff(
         () => this.appUserService.getUserById(firebaseUser.uid),
         'getUserById',
+        5, // Increased from 3 to 5 retries (total ~31s with exponential backoff)
       );
     } catch (err) {
       // After retries exhausted, re-throw with explicit marker
@@ -722,6 +789,8 @@ class AppAuthService implements IAppAuthService {
     return this.withAuthOperation(async () => {
       let signOutFailed = false;
       try {
+        // Clear session cookie first
+        await this.clearSessionCookie();
         await firebaseSignOut(this.auth);
       } catch (err) {
         // BUG #19 FIX: Log sign-out failure separately; continue with local logout
@@ -902,6 +971,56 @@ class AppAuthService implements IAppAuthService {
     this.setupSessionExpiryTimer();
   }
 
+  /**
+   * Syncs the Firebase Auth ID token to a server-side session cookie.
+   * This enables middleware-based auth checks that prevent page flashing.
+   */
+  private async syncTokenToCookie(firebaseUser: FirebaseUser): Promise<void> {
+    try {
+      const idToken = await firebaseUser.getIdToken();
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+
+      if (!response.ok) {
+        globalLogger.error('[AppAuthService] Failed to sync token to cookie', {
+          status: response.status,
+          statusText: response.statusText,
+        });
+      }
+    } catch (err) {
+      // Don't throw - cookie sync failure shouldn't break auth flow
+      globalLogger.error('[AppAuthService] Error syncing token to cookie', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Clears the server-side session cookie.
+   */
+  private async clearSessionCookie(): Promise<void> {
+    try {
+      const response = await fetch('/api/logout', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        globalLogger.error('[AppAuthService] Failed to clear session cookie', {
+          status: response.status,
+          statusText: response.statusText,
+        });
+      }
+    } catch (err) {
+      // Don't throw - cookie clear failure shouldn't break auth flow
+      globalLogger.error('[AppAuthService] Error clearing session cookie', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private handleAuthStateChanged = async (firebaseUser: FirebaseUser | null) => {
     // Queue auth state changes during mutations instead of ignoring them
     // This prevents masking legitimate changes (signout from another tab, token invalidation, etc.)
@@ -930,6 +1049,10 @@ class AppAuthService implements IAppAuthService {
       const appUser = await this._resolveAuthenticatedUser(firebaseUser);
       const sessionExpiresAt = new Date();
       sessionExpiresAt.setHours(sessionExpiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS);
+
+      // Sync ID token to session cookie (for cases like page refresh)
+      await this.syncTokenToCookie(firebaseUser);
+
       this.setSession({
         state: 'authenticated',
         user: appUser,
@@ -1220,7 +1343,6 @@ class AppAuthService implements IAppAuthService {
 
   onAuthStateChanged(callback: (session: AuthSession) => void): UnsubscribeFn {
     this.listeners.add(callback);
-    callback({ ...this.session });
 
     // Auto-cleanup unused listeners after 5 minutes to prevent memory leak
     const listenerTimeout = setTimeout(
@@ -1271,6 +1393,16 @@ class AppAuthService implements IAppAuthService {
           sessionExpiresAt.setHours(
             sessionExpiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS,
           );
+          // Transition through authenticating state to maintain state machine validity
+          this.setSession({
+            state: 'authenticating',
+            user: null,
+            emailVerified: null,
+            lastTransitionError: null,
+            lastAuthError: null,
+            sessionExpiresAt: null,
+          });
+          // Now set to authenticated
           this.setSession({
             state: 'authenticated',
             user: { ...user, lastLoginAt: new Date() },
@@ -1311,14 +1443,18 @@ class AppAuthService implements IAppAuthService {
         lastAuthError: null,
         sessionExpiresAt: null,
       });
+      const normalizedEmail = normalizeEmail(email);
       try {
-        const normalizedEmail = normalizeEmail(email);
         const cred = await signInWithEmailAndPassword(this.auth, normalizedEmail, password);
         const appUser = await this._resolveAuthenticatedUser(cred.user);
         const sessionExpiresAt = new Date();
         sessionExpiresAt.setHours(
           sessionExpiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS,
         );
+
+        // Sync ID token to session cookie
+        await this.syncTokenToCookie(cred.user);
+
         this.setSession({
           state: 'authenticated',
           user: appUser,
@@ -1337,6 +1473,12 @@ class AppAuthService implements IAppAuthService {
           lastTransitionError: null,
           lastAuthError: null,
           sessionExpiresAt: null,
+        });
+        // Log the actual error before mapping for debugging
+        globalLogger.error('[AppAuthService] Sign in failed', {
+          email: normalizedEmail,
+          errorCode: (err as any)?.code,
+          errorMessage: err instanceof Error ? err.message : String(err),
         });
         if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
         throw mapFirebaseAuthError(err);
@@ -1418,20 +1560,43 @@ class AppAuthService implements IAppAuthService {
     return session.user;
   }
 
-  async updateOwnerProfile(data: { name?: string; photoUrl?: string }): Promise<AppUser> {
+  async updateOwnerProfile(data: {
+    name?: string;
+    photoUrl?: string | File | { url?: string; file?: File } | null;
+  }): Promise<AppUser> {
     this.requireOwner();
     const user = this.session.user;
     assertAuthenticatedUser(user);
     try {
-      const updated = await this.appUserService.updateUserProfile(user.id, data);
-      this.setSession({
-        state: 'authenticated',
-        user: updated,
-        emailVerified: user.emailVerified,
-        lastTransitionError: null,
-        lastAuthError: null,
-        sessionExpiresAt: this.session.sessionExpiresAt,
-      });
+      let updated = user;
+
+      if (data.name !== undefined) {
+        updated = await this.updateUserProfile(user.id, { name: data.name });
+      }
+
+      if (data.photoUrl !== undefined) {
+        let photoInput: File | string | undefined;
+        const raw = data.photoUrl as unknown;
+
+        if (raw === '' || raw === null) {
+          photoInput = undefined;
+        } else if (raw instanceof File) {
+          photoInput = raw;
+        } else if (typeof raw === 'string') {
+          photoInput = raw;
+        } else if (typeof raw === 'object' && raw !== null) {
+          const file = (raw as { file?: File }).file;
+          const url = (raw as { url?: string }).url;
+          if (file instanceof File) {
+            photoInput = file;
+          } else if (typeof url === 'string') {
+            photoInput = url;
+          }
+        }
+
+        updated = await this.updateUserPhoto(user.id, photoInput);
+      }
+
       return updated;
     } catch (err) {
       if (err instanceof AppUserInvariantViolation || err instanceof AppAuthError) throw err;
@@ -1687,20 +1852,20 @@ class AppAuthService implements IAppAuthService {
       let storageOperationSucceeded = false;
       const previousPhotoUrl = targetUser.photoUrl;
       try {
-        let photoUrl: string | undefined;
+        let photoUrl: string | null;
 
         if (photo === undefined) {
           // Delete photo: remove from storage, clear Firestore field
           await this.deleteUserProfilePhoto(userId);
           storageOperationSucceeded = true;
-          photoUrl = undefined;
+          photoUrl = null; // Use null to delete field in Firestore
         } else {
           // Upload photo: normalize, upload to storage, get URL
           photoUrl = await this.uploadUserProfilePhoto(userId, photo);
           storageOperationSucceeded = true;
         }
 
-        // Update Firestore with new photoUrl (or undefined)
+        // Update Firestore with new photoUrl (or null to delete)
         const result = await this.appUserService.updateUserProfile(userId, { photoUrl });
 
         // If updating self, sync to session

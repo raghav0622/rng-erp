@@ -94,8 +94,24 @@ export type RevokeInviteInput = z.infer<typeof revokeInviteSchema>;
 // Profile updates
 export const updateOwnerProfileSchema = z.object({
   name: z.string().min(1, 'Name is required').optional(),
-  photoUrl: z.string().optional(),
-}) satisfies z.ZodType<{ name?: string; photoUrl?: string }>;
+  photoUrl: z
+    .union([
+      z.instanceof(File),
+      z.string(),
+      z
+        .object({
+          url: z.string().optional(),
+          file: z.instanceof(File).optional(),
+        })
+        .passthrough(),
+      z.null(),
+      z.undefined(),
+    ])
+    .optional(),
+}) satisfies z.ZodType<{
+  name?: string;
+  photoUrl?: string | File | { url?: string; file?: File } | null | undefined;
+}>;
 export type UpdateOwnerProfileInput = z.infer<typeof updateOwnerProfileSchema>;
 
 export const updateUserProfileSchema = z.object({

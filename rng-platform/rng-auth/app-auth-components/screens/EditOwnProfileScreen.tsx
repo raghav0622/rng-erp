@@ -1,14 +1,14 @@
 'use client';
 
 import { RNGForm, createFormBuilder } from '@/rng-forms';
-import { Button } from '@mantine/core';
 import { IconUser } from '@tabler/icons-react';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { z } from 'zod';
-import { useUpdateOwnerProfile } from '../../app-auth-hooks/useUserManagementMutations';
+import {
+  useUpdateUserPhoto,
+  useUpdateUserProfile,
+} from '../../app-auth-hooks/useUserManagementMutations';
 import { useCurrentUser } from '../../app-auth-hooks/useUserQueries';
-import { AuthLoadingOverlay } from '../boundaries/AuthLoadingOverlay';
 import {
   ErrorAlert,
   ScreenContainer,
@@ -18,8 +18,9 @@ import {
 
 const editProfileSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
-  photoUrl: z.string().optional(),
-  roleCategory: z.string().optional(),
+  email: z.string().optional(), // Read-only
+  role: z.string().optional(), // Read-only
+  photoUrl: z.any().optional(),
 });
 
 type EditProfileFormValues = z.infer<typeof editProfileSchema>;
@@ -27,74 +28,86 @@ type EditProfileFormValues = z.infer<typeof editProfileSchema>;
 const builder = createFormBuilder(editProfileSchema);
 const formSchema = {
   items: [
+    builder.text('email', { label: 'Email', readOnly: true, disabled: true }),
+    builder.text('role', { label: 'Role', readOnly: true, disabled: true }),
     builder.text('name', { label: 'Full Name', required: true }),
-    builder.text('photoUrl', { label: 'Photo URL', placeholder: 'https://...' }),
-    builder.text('roleCategory', {
-      label: 'Role Category (Optional)',
-      placeholder: 'e.g., Sales, Engineering',
-    }),
+    builder.imageUpload('photoUrl', { label: 'Profile Photo', allowMultiple: false }),
   ],
 };
 
-export interface EditOwnProfileScreenProps {
-  backPath?: string;
-}
-
-/**
- * Edit own profile screen
- *
- * Features:
- * - Users edit their own profile (name, photo URL)
- * - Real-time form validation
- * - Success confirmation
- * - Automatic redirect on success
- * - Error recovery
- *
- * Authorization:
- * - Requires RequireAuthenticated (any authenticated user)
- * - Can only edit own profile
- * - Not needed in a guard - screen operates on current user
- *
- * @example
- * <EditOwnProfileScreen backPath="/profile" />
- */
-export function EditOwnProfileScreen({ backPath = '/profile' }: EditOwnProfileScreenProps) {
-  const router = useRouter();
+export function EditOwnProfileScreen() {
   const { data: currentUser } = useCurrentUser();
-  const updateProfile = useUpdateOwnerProfile();
+  const updatePhoto = useUpdateUserPhoto();
+  const updateProfile = useUpdateUserProfile();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
-
-  if (!currentUser) {
-    return <AuthLoadingOverlay message="Loading profile..." />;
-  }
 
   const handleSubmit = async (values: EditProfileFormValues) => {
     setExternalErrors([]);
     setShowSuccess(false);
 
     try {
-      await updateProfile.mutateAsync({
-        name: values.name,
-        photoUrl: values.photoUrl || undefined,
-        ...(values.roleCategory && { roleCategory: values.roleCategory }),
-      });
+      if (!currentUser?.id) {
+        throw new Error('User not authenticated');
+      }
+
+      // Update name if changed
+      if (values.name !== currentUser.name) {
+        await updateProfile.mutateAsync({
+          userId: currentUser.id,
+          data: { name: values.name },
+        });
+      }
+
+      // Update photo if changed
+      const currentPhotoUrl = currentUser?.photoUrl || '';
+      let nextPhoto = values.photoUrl;
+      let shouldUpdatePhoto = false;
+
+      if (typeof nextPhoto === 'string') {
+        // Empty string means photo was removed - need to delete
+        if (nextPhoto.trim().length === 0) {
+          shouldUpdatePhoto = true;
+          nextPhoto = undefined; // undefined signals deletion
+        }
+        // Photo URL unchanged - skip update
+        else if (nextPhoto === currentPhotoUrl) {
+          shouldUpdatePhoto = false;
+        }
+        // New URL (shouldn't happen, but handle it)
+        else {
+          shouldUpdatePhoto = true;
+        }
+      } else if (nextPhoto instanceof File) {
+        // New file uploaded
+        shouldUpdatePhoto = true;
+      } else if (nextPhoto && typeof nextPhoto === 'object' && 'file' in nextPhoto) {
+        // ImageValue object from form
+        shouldUpdatePhoto = true;
+      }
+
+      if (shouldUpdatePhoto) {
+        await updatePhoto.mutateAsync({
+          userId: currentUser.id,
+          photo: nextPhoto as File | string | undefined,
+        });
+      }
 
       setShowSuccess(true);
-      setTimeout(() => {
-        router.push(backPath);
-      }, 1500);
     } catch (error) {
       const appError = error as any;
       setExternalErrors([appError?.message || 'Failed to update profile']);
     }
   };
 
+  if (!currentUser) {
+    return null;
+  }
   return (
     <ScreenContainer>
       <ScreenHeader
         title="Edit Profile"
-        description="Update your profile information"
+        description={'Update your profile information'}
         icon={IconUser}
       />
 
@@ -106,10 +119,12 @@ export function EditOwnProfileScreen({ backPath = '/profile' }: EditOwnProfileSc
         <ErrorAlert title="Update Failed" description={externalErrors[0]} />
       )}
 
-      <RNGForm<EditProfileFormValues>
+      <RNGForm
         schema={formSchema}
         validationSchema={editProfileSchema}
         defaultValues={{
+          email: currentUser.email || '',
+          role: currentUser.role || '',
           name: currentUser.name || '',
           photoUrl: currentUser.photoUrl || '',
         }}
@@ -122,18 +137,12 @@ export function EditOwnProfileScreen({ backPath = '/profile' }: EditOwnProfileSc
             setExternalErrors(errorMessages);
           }
         }}
-        submitLabel={updateProfile.isPending ? 'Updating...' : 'Update Profile'}
+        submitLabel={
+          updatePhoto.isPending || updateProfile.isPending ? 'Updating...' : 'Update Profile'
+        }
         showReset={false}
+        requireChange={false}
       />
-
-      <Button
-        variant="subtle"
-        mt="lg"
-        onClick={() => router.push(backPath)}
-        disabled={updateProfile.isPending}
-      >
-        Cancel
-      </Button>
     </ScreenContainer>
   );
 }

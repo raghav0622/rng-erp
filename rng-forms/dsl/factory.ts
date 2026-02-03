@@ -9,14 +9,17 @@ import type {
   DataGridItem,
   DateInputItem,
   DateRangeInputItem,
+  FileInputItem,
   GeoInputItem,
   GroupItem,
   HiddenInputItem,
+  ImageInputItem,
   MaskInputItem,
   MathInputItem,
   NumberInputItem,
   OTPInputItem,
   PasswordInputItem,
+  PDFInputItem,
   RadioInputItem,
   RangeSliderInputItem,
   RichTextInputItem,
@@ -33,9 +36,8 @@ import type {
 
 type InferValues<S extends z.ZodTypeAny> = z.infer<S>;
 
-type ScopedPath<TValues, P extends Path<TValues> | undefined> = P extends Path<TValues>
-  ? Path<PathValue<TValues, P>>
-  : Path<TValues>;
+type ScopedPath<TValues, P extends Path<TValues> | undefined> =
+  P extends Path<TValues> ? Path<PathValue<TValues, P>> : Path<TValues>;
 
 type ChildInput<TValues> =
   | RNGFormItem<TValues>[]
@@ -76,6 +78,9 @@ type FormBuilderShape<TValues, P extends Path<TValues> | undefined = undefined> 
   dateRange: FieldFn<DateRangeInputItem<TValues>, TValues, P>;
   richText: FieldFn<RichTextInputItem<TValues>, TValues, P>;
   // files/media
+  imageUpload: FieldFn<ImageInputItem<TValues>, TValues, P>;
+  pdfUpload: FieldFn<PDFInputItem<TValues>, TValues, P>;
+  fileUpload: FieldFn<FileInputItem<TValues>, TValues, P>;
   signature: FieldFn<SignatureInputItem<TValues>, TValues, P>;
   // special
   geo: FieldFn<GeoInputItem<TValues>, TValues, P>;
@@ -131,7 +136,7 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
   const buildField =
     <Item extends RNGFormItem<TValues>>(type: Item['type']) =>
     (name: ScopedPath<TValues, P>, props: Partial<Omit<Item, 'type' | 'name'>> = {}) =>
-      ({ type, name: withPrefix(name), ...(props as Omit<Item, 'type' | 'name'>) } as Item);
+      ({ type, name: withPrefix(name), ...(props as Omit<Item, 'type' | 'name'>) }) as Item;
 
   // Field builders
   const text = buildField<TextInputItem<TValues>>('text');
@@ -159,6 +164,9 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
   const dateRange = buildField<DateRangeInputItem<TValues>>('date-range');
   const richText = buildField<RichTextInputItem<TValues>>('rich-text');
 
+  const imageUpload = buildField<ImageInputItem<TValues>>('image-upload');
+  const pdfUpload = buildField<PDFInputItem<TValues>>('pdf-upload');
+  const fileUpload = buildField<FileInputItem<TValues>>('file-upload');
   const signature = buildField<SignatureInputItem<TValues>>('signature');
 
   const geo = buildField<GeoInputItem<TValues>>('geo');
@@ -221,6 +229,9 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
     date,
     dateRange,
     richText,
+    imageUpload,
+    pdfUpload,
+    fileUpload,
     signature,
     geo,
     math,

@@ -10,18 +10,6 @@ export { default as UserAvatar } from './UserAvatar';
 export { default as UserCard } from './UserCard';
 export { default as UserProfileCard } from './UserProfileCard';
 
-/**
- * Reusable auth components for ERP dashboard
- */
-
-export { default as EmailVerificationBanner } from './EmailVerificationBanner';
-export { default as PasswordStrengthMeter } from './PasswordStrengthMeter';
-export { default as RoleBadge } from './RoleBadge';
-export { default as UserActionsMenu } from './UserActionsMenu';
-export { default as UserAvatar } from './UserAvatar';
-export { default as UserCard } from './UserCard';
-export { default as UserProfileCard } from './UserProfileCard';
-
 // New atomic components
 export { default as ConfirmationCheckbox } from './ConfirmationCheckbox';
 export { default as EmailVerificationBadge } from './EmailVerificationBadge';
