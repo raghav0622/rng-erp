@@ -6,19 +6,12 @@
   },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "hide-files.files": [
-    "node_modules",
-    "next-env.d.ts",
-    "package-lock.json",
-    "postcss.config.cjs",
-    "tsconfig.tsbuildinfo",
-    "vitest.config.ts",
-    ".next/dev",
     ".next",
+    "node_modules",
+    "tsconfig.tsbuildinfo",
     ".storybook",
-    ".storybook/main.ts",
-    ".storybook/preview.tsx",
-    ".storybook/vitest.setup.ts",
-    ".vscode"
+    ".vscode",
+    "public"
   ],
   "files.exclude": {
     "**/.git": true,
@@ -27,18 +20,10 @@
     "**/.DS_Store": true,
     "**/Thumbs.db": true,
     ".gitignore": true,
-    "node_modules": true,
-    "next-env.d.ts": true,
-    "package-lock.json": true,
-    "postcss.config.cjs": true,
-    "tsconfig.tsbuildinfo": true,
-    "vitest.config.ts": true,
-    ".next/dev": true,
     ".next": true,
+    "node_modules": true,
+    "tsconfig.tsbuildinfo": true,
     ".storybook": true,
-    ".storybook/main.ts": true,
-    ".storybook/preview.tsx": true,
-    ".storybook/vitest.setup.ts": true,
     ".vscode": true
   }
 }

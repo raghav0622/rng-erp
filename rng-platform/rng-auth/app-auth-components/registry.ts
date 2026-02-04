@@ -6,18 +6,18 @@
  *
  * Usage:
  * ```typescript
- * import { screens, modals, hooks, hoc, components, guards, boundaries } from './registry';
+ * import { screens, modals, components, guards, boundaries } from './registry';
  *
  * // Import specific category
- * const { SignInScreen, ForgotPasswordScreen } = screens;
+ * const { ChangePasswordScreen } = screens;
  *
  * // Or import individual exports
- * import { SignInScreen } from './screens';
+ * import { ChangePasswordScreen } from './screens';
  * ```
  */
 
 // ============================================================================
-// SCREENS - Full-page auth flows and user management screens
+// SCREENS - Unimplemented screens only (most screens are now in pages)
 // ============================================================================
 export * as screens from './screens';
 
@@ -25,16 +25,6 @@ export * as screens from './screens';
 // MODALS - Dialog components for authentication flows
 // ============================================================================
 export * as modals from './modals';
-
-// ============================================================================
-// HOOKS - Custom hooks for auth logic and state management
-// ============================================================================
-export * as hooks from './hooks';
-
-// ============================================================================
-// HOC (Higher-Order Components) - Composition patterns for auth features
-// ============================================================================
-export * as hoc from './hoc';
 
 // ============================================================================
 // COMPONENTS - Reusable UI components
@@ -52,21 +42,13 @@ export * as boundaries from './boundaries';
 export * as guards from './guards';
 
 // ============================================================================
-// SHELL - Core authentication application shell
-// ============================================================================
-export { AuthAppShell } from './shell';
-export type { AuthAppShellProps } from './shell';
-
-// ============================================================================
 // CONVENIENCE EXPORTS - Most commonly used items at top level
 // ============================================================================
-
-// Core shell
-export { AuthAppShell as AppAuthShell } from './shell';
 
 // Most common guards
 export {
   AllowIfSelf,
+  CanManageRole,
   CanPerform,
   ManagerOrAbove,
   OwnerOnly,
@@ -74,35 +56,16 @@ export {
   RequireRole,
 } from './guards';
 
-// Most common screens
-export {
-  ChangePasswordScreen,
-  EditOwnProfileScreen,
-  EmailVerificationScreen,
-  ForgotPasswordScreen,
-  OwnerBootstrapScreen,
-  ResetPasswordScreen,
-  SignInScreen,
-  SignUpWithInviteScreen,
-} from './screens';
-
-// Most common HOCs
-export {
-  withAuthAppShell,
-  withConfirmPassword,
-  withManagerOrAbove,
-  withOwnerOnly,
-  withRoleGuard,
-} from './hoc';
+// Unimplemented screens
+export { ChangePasswordScreen, EmailVerificationScreen } from './screens';
 
 // Most common components
 export {
-  EmailVerificationBanner,
-  PasswordStrengthMeter,
+  EmailVerificationBadge,
   RoleBadge,
   UserActionsMenu,
   UserAvatar,
-  UserCard,
+  UserCardDesign,
   UserProfileCard,
 } from './components';
 

@@ -1,0 +1,32 @@
+/* Global styles for RNG ERP */
+
+/* Prevent horizontal overflow on all devices */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Ensure box-sizing is border-box everywhere */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Fix for mobile devices - prevent content from overflowing */
+#__next,
+body > div {
+  overflow-x: hidden;
+}
+
+/* Mantine AppShell fixes for mobile */
+[data-mantine-app-shell] {
+  overflow-x: hidden;
+}
+
+/* Ensure all direct children of AppShell.Main don't overflow */
+[data-mantine-app-shell-main] {
+  overflow-x: hidden;
+  width: 100%;
+}

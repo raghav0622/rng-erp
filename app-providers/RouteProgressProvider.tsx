@@ -2,55 +2,53 @@
 
 import { nprogress } from '@mantine/nprogress';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
+/**
+ * Route progress provider for Next.js App Router
+ * Works with @mantine/nprogress NavigationProgress component
+ *
+ * On navigation start: shows progress bar
+ * On navigation complete: completes progress bar
+ */
 export function RouteProgressProvider() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const startedRef = useRef(false);
-  const mountedRef = useRef(false);
 
   useEffect(() => {
-    const start = () => {
-      if (startedRef.current) return;
-      startedRef.current = true;
-      // Defer nprogress.start() to avoid useInsertionEffect scheduling conflict
-      setTimeout(() => nprogress.start(), 0);
+    // Intercept navigation methods
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function (...args) {
+      nprogress.start();
+      return originalPushState.apply(this, args);
     };
 
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-
-    history.pushState = function (...args) {
-      start();
-      return originalPushState.apply(this, args as any);
+    window.history.replaceState = function (...args) {
+      nprogress.start();
+      return originalReplaceState.apply(this, args);
     };
 
-    history.replaceState = function (...args) {
-      start();
-      return originalReplaceState.apply(this, args as any);
+    const handleClick = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest('a');
+      if (target && target.href && target.href.startsWith(window.location.origin)) {
+        nprogress.start();
+      }
     };
 
-    const handlePopState = () => start();
-    window.addEventListener('popstate', handlePopState);
+    document.addEventListener('click', handleClick);
 
     return () => {
-      history.pushState = originalPushState;
-      history.replaceState = originalReplaceState;
-      window.removeEventListener('popstate', handlePopState);
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      document.removeEventListener('click', handleClick);
     };
   }, []);
 
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      return;
-    }
-
-    if (!startedRef.current) return;
-
+    // Complete progress when pathname or searchParams change
     nprogress.complete();
-    startedRef.current = false;
   }, [pathname, searchParams]);
 
   return null;

@@ -1,24 +1,44 @@
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
-import '@mantine/nprogress/styles.css';
+import './globals.css';
 
-import { AuthNotificationsProvider } from '@/app-providers/AuthNotificationsProvider';
-import { OfflineDetectionProvider } from '@/app-providers/OfflineDetectionProvider';
-import { PageTransitionsProvider } from '@/app-providers/PageTransitionsProvider';
 import { RNGQueryProvider } from '@/app-providers/RNGQueryProvider';
-import { RouteProgressProvider } from '@/app-providers/RouteProgressProvider';
-import { SessionTimeoutProvider } from '@/app-providers/SessionTimeoutProvider';
-import { SingleInstanceGuard } from '@/app-providers/SingleInstanceSafeGuard';
 import { theme } from '@/theme';
 import { ColorSchemeScript, mantineHtmlProps, MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { NavigationProgress } from '@mantine/nprogress';
 import type { Metadata } from 'next';
-import React from 'react';
+import React, { Suspense } from 'react';
 
 export const metadata: Metadata = {
   title: 'RNG Apps',
 };
+
+// Lazy-load heavy providers that are only needed for authenticated pages
+const AuthNotificationsProvider = React.lazy(() =>
+  import('@/app-providers/AuthNotificationsProvider').then((m) => ({
+    default: m.AuthNotificationsProvider,
+  })),
+);
+const PageTransitionsProvider = React.lazy(() =>
+  import('@/app-providers/PageTransitionsProvider').then((m) => ({
+    default: m.PageTransitionsProvider,
+  })),
+);
+const SessionTimeoutProvider = React.lazy(() =>
+  import('@/app-providers/SessionTimeoutProvider').then((m) => ({
+    default: m.SessionTimeoutProvider,
+  })),
+);
+const OfflineDetectionProvider = React.lazy(() =>
+  import('@/app-providers/OfflineDetectionProvider').then((m) => ({
+    default: m.OfflineDetectionProvider,
+  })),
+);
+const SingleInstanceGuard = React.lazy(() =>
+  import('@/app-providers/SingleInstanceSafeGuard').then((m) => ({
+    default: m.SingleInstanceGuard,
+  })),
+);
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -34,13 +54,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <RNGQueryProvider>
           <MantineProvider theme={theme}>
             <Notifications position="bottom-center" zIndex={1000} />
-            <NavigationProgress />
-            <PageTransitionsProvider />
-            <RouteProgressProvider />
-            <AuthNotificationsProvider />
-            <SessionTimeoutProvider />
-            <OfflineDetectionProvider />
-            <SingleInstanceGuard>{children}</SingleInstanceGuard>
+            {/* Lazy-load heavy providers with suspense boundary */}
+            <Suspense fallback={null}>
+              <AuthNotificationsProvider />
+              <PageTransitionsProvider />
+              <SessionTimeoutProvider />
+              <OfflineDetectionProvider />
+              <SingleInstanceGuard>{children}</SingleInstanceGuard>
+            </Suspense>
           </MantineProvider>
         </RNGQueryProvider>
       </body>

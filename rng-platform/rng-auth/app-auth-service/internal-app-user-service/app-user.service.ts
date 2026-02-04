@@ -480,7 +480,15 @@ export class AppUserService implements IAppUserService {
     const user = await this.appUserRepo.getById(data.userId);
     assertUserExists(user);
     assertOwnerNotDeleted(user!);
-    await this.appUserRepo.delete(data.userId); // Soft delete only
+
+    // If user is unregistered (invited but never signed up), hard delete the Firestore record
+    const isUnregistered = user!.inviteStatus === 'invited' && !user!.isRegisteredOnERP;
+    if (isUnregistered) {
+      await this.appUserRepo.hardDelete(data.userId);
+    } else {
+      // For registered users, soft delete only (reversible)
+      await this.appUserRepo.delete(data.userId);
+    }
   }
   async getUserById(userId: string): Promise<AppUser | null> {
     return (await this.appUserRepo.getById(userId)) || null;

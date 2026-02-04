@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Container,
+  Grid,
   Group,
   Modal,
   Progress,
@@ -294,6 +295,10 @@ export default function RNGForm<TValues extends FieldValues = any>({
   const isSubmitting = form.formState.isSubmitting;
   const isDirty = form.formState.isDirty;
   const canSubmit = !readOnly && !isSubmitting && (requireChange !== false ? isDirty : true);
+  const hasGrid = useMemo(
+    () => schema.items.some((item) => 'colProps' in item && (item as any).colProps),
+    [schema.items],
+  );
 
   const containerStyles = {
     width: '100%',
@@ -317,7 +322,12 @@ export default function RNGForm<TValues extends FieldValues = any>({
           className={className}
           style={containerStyles}
         >
-          <form onSubmit={handleSubmit} noValidate>
+          <form
+            onSubmit={(event) => {
+              void handleSubmit(event);
+            }}
+            noValidate
+          >
             <Stack gap="xl">
               {debug && (
                 <Alert icon={<IconAlertCircle size={16} />} color="blue" title="Debug Mode">
@@ -411,11 +421,19 @@ export default function RNGForm<TValues extends FieldValues = any>({
               )}
 
               {/* Form Fields */}
-              <Stack gap="md">
-                {schema.items.map((item: RNGFormItem<TValues>, idx: number) => (
-                  <FieldWrapper key={`${item.type}-${idx}`} item={item} />
-                ))}
-              </Stack>
+              {hasGrid ? (
+                <Grid gutter="md">
+                  {schema.items.map((item: RNGFormItem<TValues>, idx: number) => (
+                    <FieldWrapper key={`${item.type}-${idx}`} item={item} />
+                  ))}
+                </Grid>
+              ) : (
+                <Stack gap="md">
+                  {schema.items.map((item: RNGFormItem<TValues>, idx: number) => (
+                    <FieldWrapper key={`${item.type}-${idx}`} item={item} />
+                  ))}
+                </Stack>
+              )}
 
               <Group justify="flex-end" gap="md">
                 <Button

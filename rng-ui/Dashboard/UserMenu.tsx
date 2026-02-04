@@ -2,13 +2,17 @@
 
 import { useAuthSession, useRequireAuthenticated } from '@/rng-platform/rng-auth';
 import { UserAvatar, UserProfileCard } from '@/rng-platform/rng-auth/app-auth-components';
-import { Button, Divider, Group, Menu, Modal, Text } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, Modal, Text } from '@mantine/core';
 import { IconLogout, IconUser } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-export function RNGUserMenu({}: {}) {
+/**
+ * Beautiful user menu with avatar, profile card, and sign out
+ * Shows user info in dropdown with smooth animations
+ */
+export function RNGUserMenu() {
   useRequireAuthenticated();
 
   const { user } = useAuthSession();
@@ -31,22 +35,24 @@ export function RNGUserMenu({}: {}) {
         onOpen={() => setMenuOpened(true)}
         onClose={() => setMenuOpened(false)}
         position="bottom-end"
+        shadow="md"
+        width={280}
       >
         <Menu.Target>
-          <Group gap="xs" style={{ cursor: 'pointer' }}>
+          <ActionIcon variant="subtle" size="lg" style={{ cursor: 'pointer' }}>
             <UserAvatar name={user?.name || ''} photoUrl={user?.photoUrl} />
-          </Group>
+          </ActionIcon>
         </Menu.Target>
 
         <Menu.Dropdown>
           <UserProfileCard showCreatedAt={false} showRegistrationStatus={false} user={user} />
-          <Menu.Item leftSection={<IconUser size={14} />} component={Link} href="/profile">
+          <Menu.Divider />
+          <Menu.Item leftSection={<IconUser size={16} />} component={Link} href="/profile">
             Profile
           </Menu.Item>
-          <Divider />
           <Menu.Item
             color="red"
-            leftSection={<IconLogout size={14} />}
+            leftSection={<IconLogout size={16} />}
             onClick={() => setSignoutModalOpened(true)}
           >
             Sign out

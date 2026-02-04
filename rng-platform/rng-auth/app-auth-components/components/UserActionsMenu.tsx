@@ -7,7 +7,6 @@ import {
   IconDotsVertical,
   IconEdit,
   IconMail,
-  IconShield,
   IconTrash,
   IconUserCheck,
 } from '@tabler/icons-react';
@@ -23,10 +22,6 @@ export interface UserActionsMenuProps {
    * Edit profile handler
    */
   onEditProfile?: () => void;
-  /**
-   * Change role handler
-   */
-  onChangeRole?: () => void;
   /**
    * Enable/disable handler
    */
@@ -76,7 +71,6 @@ export function UserActionsMenu({
   user,
   currentUser,
   onEditProfile,
-  onChangeRole,
   onToggleStatus,
   onDelete,
   onResendInvite,
@@ -126,12 +120,6 @@ export function UserActionsMenu({
             {onEditProfile && (isSelf || hasPermission) && (
               <Menu.Item leftSection={<IconEdit size={16} />} onClick={onEditProfile}>
                 Edit Profile
-              </Menu.Item>
-            )}
-
-            {onChangeRole && !isSelf && hasPermission && !isTargetOwner && (
-              <Menu.Item leftSection={<IconShield size={16} />} onClick={onChangeRole}>
-                Change Role
               </Menu.Item>
             )}
 

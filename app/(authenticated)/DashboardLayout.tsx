@@ -2,38 +2,27 @@
 
 import { useAuthSession } from '@/rng-platform/rng-auth';
 import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components';
-import DarkModeButton from '@/rng-ui/DarkModeButton';
-import { RNGSideNavLink } from '@/rng-ui/Dashboard/SideNavLink';
-import { RNGUserMenu } from '@/rng-ui/Dashboard/UserMenu';
-import {
-  AppShell,
-  Box,
-  Drawer,
-  Group,
-  Stack,
-  Text,
-  ThemeIcon,
-  useMantineColorScheme,
-} from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
-import { IconDashboard, IconMenu2 } from '@tabler/icons-react';
-import { useRouter } from 'next/navigation';
-import { ReactNode, useEffect, useState } from 'react';
+import { DashboardHeader, DashboardSidebar } from '@/rng-ui/dashboard';
+import { AppShell } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
+import { ReactNode } from 'react';
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
+
+/**
+ * Beautiful, responsive dashboard layout following Mantine best practices
+ * Features:
+ * - Collapsible navbar for both mobile and desktop
+ * - Smooth transitions and animations
+ * - AppShell.Section for proper scrollable areas
+ * - Responsive padding and spacing
+ */
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const session = useAuthSession();
-  const [sidebarOpened, setSidebarOpened] = useState(true);
-  const isMobile = useMediaQuery('(max-width: 768px)');
-
-  // Close sidebar by default on mobile; keep state for toggle
-  useEffect(() => {
-    if (isMobile) {
-      setSidebarOpened(false);
-    }
-  }, [isMobile]);
+  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
+  const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
 
   if (!session.user) {
     return <AuthLoadingOverlay />;
@@ -43,121 +32,31 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     <AppShell
       header={{ height: 60 }}
       navbar={{
-        width: 250,
-        breakpoint: 'md',
-        collapsed: { mobile: true, desktop: false },
+        width: 280,
+        breakpoint: 'sm',
+        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
       }}
-      padding={isMobile ? 'md' : 'lg'}
+      padding="md"
+      transitionDuration={300}
+      transitionTimingFunction="ease"
     >
-      <AppShell.Header p={0}>
+      {/* Beautiful header with burger menus, logo, and user controls */}
+      <AppShell.Header>
         <DashboardHeader
-          onToggleSidebar={() => setSidebarOpened((v) => !v)}
-          user={session.state === 'authenticated' ? (session.user?.name ?? 'User') : 'User'}
-          userEmail={session.state === 'authenticated' ? (session.user?.email ?? '') : ''}
-          isMobile={isMobile}
+          mobileOpened={mobileOpened}
+          desktopOpened={desktopOpened}
+          toggleMobile={toggleMobile}
+          toggleDesktop={toggleDesktop}
         />
       </AppShell.Header>
 
-      {!isMobile && (
-        <AppShell.Navbar p={0}>
-          <DashboardSidebar />
-        </AppShell.Navbar>
-      )}
+      {/* Sidebar with scrollable navigation */}
+      <AppShell.Navbar>
+        <DashboardSidebar onClick={toggleMobile} />
+      </AppShell.Navbar>
 
-      {isMobile && (
-        <Drawer
-          opened={sidebarOpened}
-          onClose={() => setSidebarOpened(false)}
-          size={260}
-          padding="xs"
-          title="RNG ERP"
-        >
-          <DashboardSidebar onClick={() => setSidebarOpened(false)} />
-        </Drawer>
-      )}
-
+      {/* Main content area */}
       <AppShell.Main>{children}</AppShell.Main>
     </AppShell>
-  );
-}
-
-/**
- * Sticky header with logo, sidebar toggle, and user menu.
- * Remains visually quiet (minimal decoration).
- */
-function DashboardHeader({
-  onToggleSidebar,
-  user,
-  userEmail,
-  isMobile,
-}: {
-  onToggleSidebar: () => void;
-  user: string;
-  userEmail: string;
-  isMobile: boolean;
-}) {
-  const { colorScheme } = useMantineColorScheme();
-  const router = useRouter();
-  const isDark = colorScheme === 'dark';
-
-  const handleSignOut = () => {
-    // Navigate to signout page which handles the signout flow
-    router.push('/signout');
-  };
-
-  return (
-    <Box
-      h="100%"
-      px="lg"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: `1px solid var(--mantine-color-${isDark ? 'dark-5' : 'gray-2'})`,
-        backgroundColor: `var(--mantine-color-${isDark ? 'dark-7' : 'white'})`,
-      }}
-    >
-      {/* Left: Logo + Mobile Toggle */}
-      <Group gap="xs" wrap="nowrap">
-        {isMobile && (
-          <ThemeIcon
-            variant="light"
-            size="lg"
-            onClick={onToggleSidebar}
-            style={{ cursor: 'pointer' }}
-          >
-            <IconMenu2 size={20} />
-          </ThemeIcon>
-        )}
-        <Text fw={600} size="md">
-          RNG ERP
-        </Text>
-      </Group>
-
-      {/* Right: Dark Mode + User Menu */}
-      <Group gap="md">
-        <DarkModeButton />
-        <RNGUserMenu />
-      </Group>
-    </Box>
-  );
-}
-
-function DashboardSidebar({ onClick }: { onClick?: () => void }) {
-  return (
-    <Stack gap={0}>
-      <RNGSideNavLink
-        label="Dashboard"
-        icon={<IconDashboard size={20} />}
-        href="/dashboard"
-        onClick={onClick}
-      />
-      <RNGSideNavLink
-        label="User Management"
-        icon={<IconDashboard size={20} />}
-        href="/dashboard/user-management"
-        onClick={onClick}
-      />
-    </Stack>
   );
 }

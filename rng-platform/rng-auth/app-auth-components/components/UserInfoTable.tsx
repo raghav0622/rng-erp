@@ -24,7 +24,7 @@ export interface UserInfoTableProps extends Omit<PaperProps, 'children'> {
 export default function UserInfoTable({
   items,
   columns = 2,
-  showBackground = true,
+  showBackground = false,
   ...paperProps
 }: UserInfoTableProps) {
   return (
@@ -32,7 +32,6 @@ export default function UserInfoTable({
       p="md"
       withBorder
       style={{
-        backgroundColor: showBackground ? 'var(--mantine-color-gray-0)' : undefined,
         borderRadius: 'var(--mantine-radius-md)',
       }}
       {...paperProps}

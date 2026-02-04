@@ -3,18 +3,27 @@
 import { globalLogger } from '@/lib';
 import { Button, Group, SimpleGrid, Stack, Text } from '@mantine/core';
 import { IconFile } from '@tabler/icons-react';
-import * as pdfjsLib from 'pdfjs-dist';
 import { useCallback, useRef, useState } from 'react';
 import { useController, type Control, type FieldValues } from 'react-hook-form';
 import type { PDFInputItem } from '../../../types';
 import PDFEditorModal from '../../editors/PDFEditor/PDFEditorModal';
 
-// Set up PDF.js worker (Vite-safe)
-if (typeof window !== 'undefined') {
+// Initialize PDF.js worker lazily on first use
+let pdfjsLibInitialized = false;
+let pdfjsLibCache: any = null;
+
+async function initializePDFWorker() {
+  if (pdfjsLibInitialized) {
+    return pdfjsLibCache;
+  }
+  const pdfjsLib = await import('pdfjs-dist');
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
     'pdfjs-dist/build/pdf.worker.min.mjs',
     import.meta.url,
   ).href;
+  pdfjsLibInitialized = true;
+  pdfjsLibCache = pdfjsLib;
+  return pdfjsLib;
 }
 
 interface PDFFileItem {
@@ -77,6 +86,7 @@ export function PDFInputField<TValues extends FieldValues>(
 
   const getPageCount = useCallback(async (file: File): Promise<number> => {
     try {
+      const pdfjsLib = await initializePDFWorker();
       const pdf = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
       return pdf.numPages;
     } catch {

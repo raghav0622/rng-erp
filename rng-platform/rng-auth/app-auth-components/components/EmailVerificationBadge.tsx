@@ -48,7 +48,6 @@ export default function EmailVerificationBadge({
     return (
       <Alert
         icon={<IconAlertCircle size={14} />}
-        color="yellow"
         variant="light"
         styles={{
           root: {
@@ -68,7 +67,7 @@ export default function EmailVerificationBadge({
   }
 
   return (
-    <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light" {...alertProps}>
+    <Alert icon={<IconAlertCircle size={16} />} variant="light" {...alertProps}>
       {message}
     </Alert>
   );

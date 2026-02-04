@@ -2244,12 +2244,16 @@ class AppAuthService implements IAppAuthService {
 
         if (elapsedMs < RESEND_COOLDOWN_MS) {
           const minutesRemaining = Math.ceil((RESEND_COOLDOWN_MS - elapsedMs) / (60 * 1000));
+          const hoursRemaining = Math.ceil((RESEND_COOLDOWN_MS - elapsedMs) / (60 * 60 * 1000));
           globalLogger.warn('[AppAuthService] Invite resend rate limited', {
             userId,
             lastSentAt: user.inviteSentAt,
             minutesRemaining,
           });
-          throw new TooManyRequestsError();
+          const error = new TooManyRequestsError();
+          (error as any).minutesRemaining = minutesRemaining;
+          (error as any).hoursRemaining = hoursRemaining;
+          throw error;
         }
       }
       if (options?.force && user.inviteSentAt) {

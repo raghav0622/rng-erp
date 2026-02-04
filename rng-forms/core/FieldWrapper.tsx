@@ -30,11 +30,12 @@ export function FieldWrapper<TValues extends FieldValues = FieldValues>({
   const mergedReadOnly =
     (dynamicProps as any)?.readOnly ?? ('readOnly' in item ? (item as any).readOnly : ctxReadOnly);
   const colProps = 'colProps' in item ? (item as any).colProps : undefined;
+  const { colProps: _colProps, ...itemProps } = item as any;
 
   const componentElement = (
     <FieldErrorBoundary>
       <Component
-        {...item}
+        {...itemProps}
         {...dynamicProps}
         control={control}
         error={error}
