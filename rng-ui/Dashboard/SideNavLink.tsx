@@ -8,6 +8,7 @@ export interface SideNavLinkProps {
   href: string;
   label: string;
   icon: React.ReactNode;
+  onClick?: () => void;
 }
 
 export function RNGSideNavLink(props: SideNavLinkProps) {
@@ -20,6 +21,7 @@ export function RNGSideNavLink(props: SideNavLinkProps) {
       label={props.label}
       leftSection={props.icon}
       href={props.href}
+      onClick={props.onClick}
     />
   );
 }

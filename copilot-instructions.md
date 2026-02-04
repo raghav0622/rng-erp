@@ -68,7 +68,7 @@ npm run review       # Generate review file from scripts (internal tool)
 - **Server vars**: `NODE_ENV`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_MAX_AGE_DAYS`.
 - **Client vars**: `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`.
 - **Test environment**: Vitest auto-injects mock Firebase values (defined in [vitest.config.ts](./vitest.config.ts) under `test.env`) for `NEXT_PUBLIC_FIREBASE_*` vars. Server vars are not available in unit tests by default (unless using database/integration tests).
-- **Adding new env vars**: Update [lib/env.ts](../lib/env.ts) schema and sync any test-needed vars with [vitest.config.ts](../vitest.config.ts) `test.env` object.
+- **Adding new env vars**: Update [lib/env.ts](./lib/env.ts) schema and sync any test-needed vars with [vitest.config.ts](./vitest.config.ts) `test.env` object.
 
 ## Patterns to Follow When Modifying Forms
 
@@ -250,7 +250,7 @@ export function normalizeEmail(email: string): string {
 }
 ```
 
-Use before comparisons, storage, or verification. See [app-auth.service.ts](../rng-platform/rng-auth/app-auth-service/app-auth.service.ts) for implementation details.
+Use before comparisons, storage, or verification. See [app-auth.service.ts](./rng-platform/rng-auth/app-auth-service/app-auth.service.ts) for implementation details.
 
 ### Lazy Component Loading
 
@@ -298,7 +298,7 @@ import { toMillis } from 'lib/firebase-client';
 const createdAt = toMillis(firebaseDoc.createdAt);
 ```
 
-See [firebase-client.ts](../lib/firebase-client.ts) for serialization helpers.
+See [firebase-client.ts](./lib/firebase-client.ts) for serialization helpers.
 
 ## When Working with Data
 
@@ -326,7 +326,7 @@ The auth service includes explicit race detection (e.g., `OwnerBootstrapRaceDete
 - **Scope**: Logic, utilities, error mapping (not component rendering)
 - **Setup**: `npm run test` runs all `rng-firebase/**/*.spec.ts` files
 - **Mock Firebase**: Test env vars injected by vitest.config.ts; use real-like project IDs
-- **Example**: [adapter-error-mapping.spec.ts](../rng-firebase/adapters/adapter-error-mapping.spec.ts) (placeholder, to be implemented when module is created)
+- **Example**: adapter-error-mapping.spec.ts (placeholder, to be implemented when module is created)
 
 ### Storybook Tests
 
@@ -525,7 +525,7 @@ export function mapFirebaseAuthError(error: unknown): AppAuthError {
 - [ ] `npm run test` passes (all tests green)
 - [ ] `npm run lint` has no errors
 - [ ] `npm run build` completes successfully
-- [ ] TypeScript strict mode: `noImplicitAny`, type annotations present
+- [ ] TypeScript strict mode: `noImpPlicitAny`, type annotations present
 - [ ] Components lazy-loaded (if new UI components added)
 - [ ] Error handling uses `AppAuthError` or semantic types (not raw Firebase)
 - [ ] Service layer used (not raw Firebase SDK in UI)

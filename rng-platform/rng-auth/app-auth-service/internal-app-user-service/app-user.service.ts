@@ -323,7 +323,6 @@ export class AppUserService implements IAppUserService {
       // Validate the constructed user object
       assertValidOwnerCreation(user as AppUser);
     } else {
-      assertValidInvitedUserCreation(data);
       const timestamps = this.calculateRoleTimestamps(null, data, now);
       // Policy: Capture inviteSentAt BEFORE any I/O to prevent timestamp drift on retries
       // If creation fails and is retried, inviteSentAt should remain consistent
@@ -344,6 +343,8 @@ export class AppUserService implements IAppUserService {
         inviteSentAt: inviteSentAt,
         inviteRespondedAt: undefined,
       };
+      // Validate the constructed user object
+      assertValidInvitedUserCreation(user as AppUser);
       // Invited users MUST NOT require authUid
       // (do not add authUid or any auth identity fields)
     }

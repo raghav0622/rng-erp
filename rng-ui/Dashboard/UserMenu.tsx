@@ -2,7 +2,7 @@
 
 import { useAuthSession, useRequireAuthenticated } from '@/rng-platform/rng-auth';
 import { UserAvatar, UserProfileCard } from '@/rng-platform/rng-auth/app-auth-components';
-import { Divider, Group, Menu, Modal } from '@mantine/core';
+import { Button, Divider, Group, Menu, Modal, Text } from '@mantine/core';
 import { IconLogout, IconUser } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -60,35 +60,16 @@ export function RNGUserMenu({}: {}) {
         title="Sign out?"
         centered
       >
-        <div style={{ marginBottom: 16 }}>
+        <Text mb="md">
           Are you sure you want to sign out? You will need to sign in again to access your account.
-        </div>
+        </Text>
         <Group justify="flex-end" gap="sm">
-          <button
-            onClick={() => setSignoutModalOpened(false)}
-            style={{
-              padding: '8px 16px',
-              border: '1px solid var(--mantine-color-gray-3)',
-              borderRadius: '4px',
-              background: 'white',
-              cursor: 'pointer',
-            }}
-          >
+          <Button variant="default" onClick={() => setSignoutModalOpened(false)}>
             Cancel
-          </button>
-          <button
-            onClick={handleConfirmSignOut}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '4px',
-              background: 'var(--mantine-color-red-6)',
-              color: 'white',
-              cursor: 'pointer',
-            }}
-          >
+          </Button>
+          <Button color="red" onClick={handleConfirmSignOut}>
             Sign out
-          </button>
+          </Button>
         </Group>
       </Modal>
     </>

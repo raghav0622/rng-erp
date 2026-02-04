@@ -5,11 +5,20 @@ import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components'
 import DarkModeButton from '@/rng-ui/DarkModeButton';
 import { RNGSideNavLink } from '@/rng-ui/Dashboard/SideNavLink';
 import { RNGUserMenu } from '@/rng-ui/Dashboard/UserMenu';
-import { AppShell, Box, Group, Stack, Text, ThemeIcon, useMantineColorScheme } from '@mantine/core';
+import {
+  AppShell,
+  Box,
+  Drawer,
+  Group,
+  Stack,
+  Text,
+  ThemeIcon,
+  useMantineColorScheme,
+} from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconDashboard, IconMenu2 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -19,8 +28,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpened, setSidebarOpened] = useState(true);
   const isMobile = useMediaQuery('(max-width: 768px)');
 
-  // Sidebar closes on mobile by default, but toggle persists state
-  const showSidebar = sidebarOpened && !isMobile;
+  // Close sidebar by default on mobile; keep state for toggle
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpened(false);
+    }
+  }, [isMobile]);
 
   if (!session.user) {
     return <AuthLoadingOverlay />;
@@ -32,7 +45,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       navbar={{
         width: 250,
         breakpoint: 'md',
-        collapsed: { mobile: !showSidebar, desktop: false },
+        collapsed: { mobile: true, desktop: false },
       }}
       padding={isMobile ? 'md' : 'lg'}
     >
@@ -45,9 +58,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         />
       </AppShell.Header>
 
-      <AppShell.Navbar p={0}>
-        <DashboardSidebar />
-      </AppShell.Navbar>
+      {!isMobile && (
+        <AppShell.Navbar p={0}>
+          <DashboardSidebar />
+        </AppShell.Navbar>
+      )}
+
+      {isMobile && (
+        <Drawer
+          opened={sidebarOpened}
+          onClose={() => setSidebarOpened(false)}
+          size={260}
+          padding="xs"
+          title="RNG ERP"
+        >
+          <DashboardSidebar onClick={() => setSidebarOpened(false)} />
+        </Drawer>
+      )}
 
       <AppShell.Main>{children}</AppShell.Main>
     </AppShell>
@@ -116,14 +143,20 @@ function DashboardHeader({
   );
 }
 
-function DashboardSidebar() {
+function DashboardSidebar({ onClick }: { onClick?: () => void }) {
   return (
     <Stack gap={0}>
-      <RNGSideNavLink label="Dashboard" icon={<IconDashboard size={20} />} href="/dashboard" />
+      <RNGSideNavLink
+        label="Dashboard"
+        icon={<IconDashboard size={20} />}
+        href="/dashboard"
+        onClick={onClick}
+      />
       <RNGSideNavLink
         label="User Management"
         icon={<IconDashboard size={20} />}
         href="/dashboard/user-management"
+        onClick={onClick}
       />
     </Stack>
   );

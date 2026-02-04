@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { IconWifiOff } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
 
 /**
  * Offline detection - shows notification when user goes offline

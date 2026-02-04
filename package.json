@@ -21,6 +21,7 @@
     "@mantine/dates": "^8.3.10",
     "@mantine/hooks": "^8.3.10",
     "@mantine/notifications": "^8.3.10",
+    "@mantine/nprogress": "^8.3.10",
     "@mantine/tiptap": "^8.3.10",
     "@photo-sphere-viewer/core": "^5.14.1",
     "@t3-oss/env-nextjs": "^0.13.10",

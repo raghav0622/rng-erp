@@ -1,8 +1,8 @@
 'use client';
 
 import { useAuthSession } from '@/rng-platform/rng-auth';
-import { useEffect, useState } from 'react';
 import { notifications } from '@mantine/notifications';
+import { useEffect, useState } from 'react';
 
 /**
  * Auth notifications provider - shows toast notifications for auth events
