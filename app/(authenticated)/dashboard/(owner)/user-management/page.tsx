@@ -18,8 +18,8 @@ import {
 } from '@/rng-platform/rng-auth/app-auth-hooks/useUserManagementMutations';
 import { useListUsersPaginated } from '@/rng-platform/rng-auth/app-auth-hooks/useUserQueries';
 import type { AppUser } from '@/rng-platform/rng-auth/app-auth-service/internal-app-user-service/app-user.contracts';
-import { RNGModal } from '@/rng-ui/RNGModal';
-import { RNGPageContent } from '@/rng-ui/RNGPageContent';
+import { RNGModal } from '@/rng-ui/ux/_RNGModal';
+import RNGPageContent from '@/rng-ui/ux/_RNGPageContent';
 import {
   Avatar,
   Badge,
@@ -170,7 +170,7 @@ export default function UserManagementPage() {
   );
 
   const handleStatusChange = useCallback(
-    (userId: string, isDisabled: boolean) => {
+    (userId: string, isDisabled: boolean, onClose?: () => void) => {
       updateStatus(
         { userId, data: { isDisabled } },
         {
@@ -181,6 +181,7 @@ export default function UserManagementPage() {
               color: 'green',
               autoClose: 3000,
             });
+            onClose?.();
           },
           onError: (error: any) => {
             notifications.show({
@@ -197,7 +198,7 @@ export default function UserManagementPage() {
   );
 
   const handleDelete = useCallback(
-    (userId: string) => {
+    (userId: string, onClose?: () => void) => {
       deleteUser(
         { userId },
         {
@@ -208,6 +209,7 @@ export default function UserManagementPage() {
               color: 'green',
               autoClose: 3000,
             });
+            onClose?.();
           },
           onError: (error: any) => {
             notifications.show({
@@ -501,9 +503,10 @@ export default function UserManagementPage() {
                   <Button
                     onClick={() => {
                       if (user) {
-                        handleStatusChange(selectedUserId, !user.isDisabled);
-                        closeModal();
-                        onClose();
+                        handleStatusChange(selectedUserId, !user.isDisabled, () => {
+                          closeModal();
+                          onClose();
+                        });
                       }
                     }}
                   >
@@ -537,9 +540,10 @@ export default function UserManagementPage() {
                 </Button>
                 <Button
                   onClick={() => {
-                    handleDelete(selectedUserId);
-                    closeModal();
-                    onClose();
+                    handleDelete(selectedUserId, () => {
+                      closeModal();
+                      onClose();
+                    });
                   }}
                 >
                   Delete User

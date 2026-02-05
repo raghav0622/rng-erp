@@ -1,7 +1,7 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { useIsOwnerBootstrapped } from '@/rng-platform/rng-auth/app-auth-hooks';
+import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
 import { signInSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
 import { useSignIn } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
 import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
@@ -12,9 +12,9 @@ import { useState } from 'react';
 
 export default function SignInPage() {
   const redirectTo = '/dashboard';
-  const showBootstrapLink = useIsOwnerBootstrapped().data === false;
   const router = useRouter();
   const signIn = useSignIn();
+  const notifications = useAuthNotifications();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [isRedirecting, setIsRedirecting] = useState(false);
 
@@ -22,6 +22,8 @@ export default function SignInPage() {
     setExternalErrors([]);
     try {
       await signIn.mutateAsync(values);
+      // Show success notification
+      notifications.showSuccess(`Welcome back, ${values.email}!`, 'Sign In Successful');
       // On success, redirect with loading state
       setIsRedirecting(true);
       router.push(redirectTo);
@@ -29,6 +31,7 @@ export default function SignInPage() {
       // Map error to user-friendly message
       const appError = error as AppAuthError;
       setExternalErrors([appError.message]);
+      notifications.showError(appError.message, 'Sign In Failed');
     }
   };
 

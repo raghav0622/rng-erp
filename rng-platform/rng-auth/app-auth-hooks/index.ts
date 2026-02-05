@@ -176,6 +176,7 @@ export {
   InviteAlreadyAcceptedError,
   InviteInvalidError,
   InviteRevokedError,
+  isAppAuthError,
   NotAuthenticatedError,
   NotAuthorizedError,
   NotOwnerError,
@@ -186,5 +187,4 @@ export {
   TooManyRequestsError,
   UserDisabledError,
   WeakPasswordError,
-  isAppAuthError,
 } from '../app-auth-service/app-auth.errors';

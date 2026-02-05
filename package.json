@@ -47,6 +47,7 @@
     "dayjs": "^1.11.19",
     "file-saver": "^2.0.5",
     "firebase": "^12.7.0",
+    "firebase-admin": "^13.6.1",
     "konva": "^10.0.12",
     "mantine-datatable": "^8.3.11",
     "mathjs": "^15.1.0",

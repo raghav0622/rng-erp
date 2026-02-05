@@ -1,6 +1,7 @@
 'use client';
 
 import { RNGForm, createFormBuilder } from '@/rng-forms';
+import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
 import {
   useUpdateUserPhoto,
   useUpdateUserProfile,
@@ -34,6 +35,7 @@ export default function ProfilePage() {
   const { data: currentUser } = useCurrentUser();
   const updatePhoto = useUpdateUserPhoto();
   const updateProfile = useUpdateUserProfile();
+  const notifications = useAuthNotifications();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -89,9 +91,12 @@ export default function ProfilePage() {
       }
 
       setShowSuccess(true);
+      notifications.showSuccess('Your profile has been updated successfully!', 'Profile Updated');
     } catch (error) {
       const appError = error as any;
-      setExternalErrors([appError?.message || 'Failed to update profile']);
+      const errorMsg = appError?.message || 'Failed to update profile';
+      setExternalErrors([errorMsg]);
+      notifications.showError(errorMsg, 'Profile Update Failed');
     }
   };
 

@@ -2,6 +2,7 @@
 
 import RNGForm from '@/rng-forms/RNGForm';
 import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components';
+import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
 import { ownerSignUpSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
 import { useOwnerSignUp } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
 import { useIsOwnerBootstrapped } from '@/rng-platform/rng-auth/app-auth-hooks/useBootstrapQueries';
@@ -16,6 +17,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { data: isBootstrapped, isLoading } = useIsOwnerBootstrapped();
   const ownerSignUp = useOwnerSignUp();
+  const notifications = useAuthNotifications();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
 
   useEffect(() => setExternalErrors([]), []);
@@ -24,6 +26,7 @@ export default function OnboardingPage() {
     setExternalErrors([]);
     try {
       await ownerSignUp.mutateAsync(values);
+      notifications.showSuccess('Organization setup complete! Welcome aboard!', 'Setup Successful');
       router.push(redirectTo);
     } catch (error) {
       const appError = error as AppAuthError;
@@ -41,6 +44,7 @@ export default function OnboardingPage() {
       const customMsg = customHandlers[appError.code];
       const msg = typeof customMsg === 'string' ? [customMsg] : customMsg;
       setExternalErrors(msg || [appError.message]);
+      notifications.showError(msg?.[0] || appError.message, 'Setup Failed');
     }
   };
 

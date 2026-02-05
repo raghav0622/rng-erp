@@ -1,7 +1,7 @@
 'use client';
 
-import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components';
+import { RNGLoadingOverlay } from '@/rng-ui/ux';
 
 export default function UnauthenticatedLoadingFallback() {
-  return <AuthLoadingOverlay />;
+  return <RNGLoadingOverlay />;
 }

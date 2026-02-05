@@ -1,14 +1,20 @@
-import { ReactNode } from 'react';
+'use client';
 
-interface UnauthenticatedLayoutProps {
-  children: ReactNode;
-}
+import { useIsOwnerBootstrapped } from '@/rng-platform/rng-auth/app-auth-hooks/useBootstrapQueries';
+import UnauthenticatedLayout from '@/rng-ui/layouts/unauthenticated/UnauthenticatedLayout';
+import { usePathname, useRouter } from 'next/navigation';
+import { ReactNode, useEffect } from 'react';
 
-/**
- * Unauthenticated layout - protected by middleware.
- * Middleware validates auth and redirects authenticated users
- * BEFORE this component renders, eliminating all page flashing.
- */
-export default function UnauthenticatedLayout({ children }: UnauthenticatedLayoutProps) {
-  return <>{children}</>;
+export default function Layout({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { data: isBootstrapped, isLoading } = useIsOwnerBootstrapped();
+
+  useEffect(() => {
+    if (!isLoading && !isBootstrapped && !pathname.includes('/onboarding')) {
+      router.push('/onboarding');
+    }
+  }, [isBootstrapped, isLoading, pathname, router]);
+
+  return <UnauthenticatedLayout>{children}</UnauthenticatedLayout>;
 }

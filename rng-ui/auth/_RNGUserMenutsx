@@ -1,0 +1,10 @@
+'use client';
+
+import { UserMenu } from '@/rng-platform/rng-auth/app-auth-components';
+
+/**
+ * Re-export of UserMenu from app-auth-components for convenience
+ * Maintains backward compatibility with dashboard imports
+ * The actual implementation is in app-auth-components where auth logic belongs
+ */
+export { UserMenu as RNGUserMenu };

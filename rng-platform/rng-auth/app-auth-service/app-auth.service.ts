@@ -2073,7 +2073,43 @@ class AppAuthService implements IAppAuthService {
       AppAuthService.OWNER_OP_RATE_LIMIT_PER_MINUTE,
     );
     try {
-      return await this.appUserService.deleteUser({ userId });
+      // First delete from Firestore (soft or hard delete)
+      await this.appUserService.deleteUser({ userId });
+
+      // Then delete Firebase Auth user and storage via API
+      try {
+        await this.deleteAllUserStorage(userId);
+
+        // Delete Firebase Auth user via admin API
+        const deleteResponse = await fetch('/api/auth/delete-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: userId }),
+        });
+
+        if (!deleteResponse.ok) {
+          const errorData = await deleteResponse.json();
+          globalLogger.warn(
+            '[AppAuthService] Failed to delete Firebase Auth user (continuing anyway)',
+            {
+              userId,
+              status: deleteResponse.status,
+              error: errorData.error,
+            },
+          );
+        } else {
+          globalLogger.info('[AppAuthService] Successfully deleted Firebase Auth user', {
+            userId,
+          });
+        }
+      } catch (err) {
+        // Don't fail the entire operation if Firebase Auth deletion fails
+        // The user is already deleted from Firestore
+        globalLogger.warn('[AppAuthService] Error calling delete Firebase Auth API', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } catch (err) {
       rethrowOrMapAuthError(err);
     }

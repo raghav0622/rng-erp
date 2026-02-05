@@ -4,7 +4,7 @@ import { serverConfig } from './lib/firebase-auth-edge';
 
 const PUBLIC_PATHS = [
   '/signin',
-  '/owner-bootstrap',
+  '/onboarding',
   '/signup-with-invite',
   '/forgot-password',
   '/reset-password',

@@ -1,6 +1,7 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
+import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
 import { signUpWithInviteSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
 import { useSignUpWithInvite } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
 import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
@@ -13,6 +14,7 @@ export default function SignUpWithInvitePage() {
   const redirectTo = '/dashboard';
   const router = useRouter();
   const signUpWithInvite = useSignUpWithInvite();
+  const notifications = useAuthNotifications();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [signupComplete, setSignupComplete] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
@@ -24,11 +26,16 @@ export default function SignUpWithInvitePage() {
     try {
       await signUpWithInvite.mutateAsync(values);
       setSignupComplete(true);
+      notifications.showSuccess(
+        'Your account has been created successfully!',
+        'Registration Complete',
+      );
       setIsRedirecting(true);
       setTimeout(() => router.push(redirectTo), 2000);
     } catch (err) {
       const appError = err as AppAuthError;
       setExternalErrors([appError.message]);
+      notifications.showError(appError.message, 'Registration Failed');
     }
   };
 

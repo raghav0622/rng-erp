@@ -20,9 +20,7 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "rng-repository": ["./rng-repository/index.ts"],
-      "rng-auth/*": ["./rng-platform/rng-auth/*"],
-      "rng-auth": ["./rng-platform/rng-auth"]
+      "rng-repository": ["./rng-repository/index.ts"]
     },
 
     // 🛡️ EXTRA SAFETY RULES (Production Hardening)

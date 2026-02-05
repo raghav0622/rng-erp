@@ -3,7 +3,7 @@
 import RNGForm from '@/rng-forms/RNGForm';
 import { inviteUserSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
 import { useInviteUser } from '@/rng-platform/rng-auth/app-auth-hooks/useUserManagementMutations';
-import { RNGPageContent } from '@/rng-ui/RNGPageContent';
+import { RNGPageContent } from '@/rng-ui/ux/_RNGPageContent';
 import { Alert, Center, Loader, Stack, Text } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';

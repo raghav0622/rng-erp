@@ -5,7 +5,7 @@ import {
   useListOrphanedUsers,
   useListUsers,
 } from '@/rng-platform/rng-auth/app-auth-hooks';
-import { RNGPageContent } from '@/rng-ui/RNGPageContent';
+import { RNGPageContent } from '@/rng-ui/ux/_RNGPageContent';
 import {
   Alert,
   Badge,

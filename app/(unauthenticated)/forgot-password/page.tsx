@@ -1,6 +1,7 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
+import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
 import { sendPasswordResetEmailSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
 import { useSendPasswordResetEmail } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
 import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
@@ -10,6 +11,7 @@ import { useState } from 'react';
 
 export default function ForgotPasswordPage() {
   const sendResetEmail = useSendPasswordResetEmail();
+  const notifications = useAuthNotifications();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [emailSent, setEmailSent] = useState(false);
   const [sentEmail, setSentEmail] = useState('');
@@ -20,9 +22,14 @@ export default function ForgotPasswordPage() {
       await sendResetEmail.mutateAsync({ email: values.email });
       setSentEmail(values.email);
       setEmailSent(true);
+      notifications.showSuccess(
+        `Password reset instructions sent to ${values.email}`,
+        'Email Sent',
+      );
     } catch (error) {
       const appError = error as AppAuthError;
       setExternalErrors([appError.message]);
+      notifications.showError(appError.message, 'Failed to Send Reset Email');
     }
   };
 

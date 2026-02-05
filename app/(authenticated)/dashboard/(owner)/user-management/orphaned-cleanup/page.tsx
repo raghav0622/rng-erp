@@ -5,7 +5,7 @@ import {
   useListOrphanedUsers,
 } from '@/rng-platform/rng-auth/app-auth-hooks';
 import type { AppUser } from '@/rng-platform/rng-auth/app-auth-service/internal-app-user-service/app-user.contracts';
-import { RNGPageContent } from '@/rng-ui/RNGPageContent';
+import { RNGPageContent } from '@/rng-ui/ux/_RNGPageContent';
 import { Alert, Button, Center, Group, Loader, Stack, Text } from '@mantine/core';
 import { IconAlertCircle, IconAlertTriangle, IconTrash } from '@tabler/icons-react';
 import { Suspense, useState } from 'react';
