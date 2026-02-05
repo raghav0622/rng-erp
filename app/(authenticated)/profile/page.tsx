@@ -1,12 +1,8 @@
 'use client';
 
 import { RNGForm, createFormBuilder } from '@/rng-forms';
-import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
-import {
-  useUpdateUserPhoto,
-  useUpdateUserProfile,
-} from '@/rng-platform/rng-auth/app-auth-hooks/useUserManagementMutations';
-import { useCurrentUser } from '@/rng-platform/rng-auth/app-auth-hooks/useUserQueries';
+import { useRequireAuthenticated, useUpdateUserPhoto, useUpdateUserProfile } from '@/rng-platform';
+import { useRNGNotification } from '@/rng-ui/ux';
 import { Alert, Container, Stack } from '@mantine/core';
 import { IconUser } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -32,10 +28,10 @@ const formSchema = {
 };
 
 export default function ProfilePage() {
-  const { data: currentUser } = useCurrentUser();
+  const user = useRequireAuthenticated();
   const updatePhoto = useUpdateUserPhoto();
   const updateProfile = useUpdateUserProfile();
-  const notifications = useAuthNotifications();
+  const notifications = useRNGNotification();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -44,20 +40,15 @@ export default function ProfilePage() {
     setShowSuccess(false);
 
     try {
-      if (!currentUser?.id) {
-        throw new Error('User not authenticated');
-      }
-
-      // Update name if changed
-      if (values.name !== currentUser.name) {
+      if (values.name !== user.name) {
         await updateProfile.mutateAsync({
-          userId: currentUser.id,
+          userId: user.id,
           data: { name: values.name },
         });
       }
 
       // Update photo if changed
-      const currentPhotoUrl = currentUser?.photoUrl || '';
+      const currentPhotoUrl = user?.photoUrl || '';
       let nextPhoto = values.photoUrl;
       let shouldUpdatePhoto = false;
 
@@ -85,7 +76,7 @@ export default function ProfilePage() {
 
       if (shouldUpdatePhoto) {
         await updatePhoto.mutateAsync({
-          userId: currentUser.id,
+          userId: user.id,
           photo: nextPhoto as File | string | undefined,
         });
       }
@@ -99,10 +90,6 @@ export default function ProfilePage() {
       notifications.showError(errorMsg, 'Profile Update Failed');
     }
   };
-
-  if (!currentUser) {
-    return null;
-  }
 
   return (
     <Container size="xs">
@@ -138,10 +125,10 @@ export default function ProfilePage() {
           schema={formSchema}
           validationSchema={editProfileSchema}
           defaultValues={{
-            email: currentUser.email || '',
-            role: currentUser.role || '',
-            name: currentUser.name || '',
-            photoUrl: currentUser.photoUrl || '',
+            email: user.email || '',
+            role: user.role || '',
+            name: user.name || '',
+            photoUrl: user.photoUrl || '',
           }}
           onSubmit={handleSubmit}
           onError={(errors: Record<string, any>) => {

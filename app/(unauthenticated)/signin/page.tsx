@@ -1,10 +1,9 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
-import { signInSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
-import { useSignIn } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
-import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
+import type { AppAuthError } from '@/rng-platform';
+import { signInSchema, useSignIn } from '@/rng-platform';
+import { useRNGNotification } from '@/rng-ui/ux';
 import { Anchor, Container, Divider, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -14,7 +13,7 @@ export default function SignInPage() {
   const redirectTo = '/dashboard';
   const router = useRouter();
   const signIn = useSignIn();
-  const notifications = useAuthNotifications();
+  const notifications = useRNGNotification();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [isRedirecting, setIsRedirecting] = useState(false);
 

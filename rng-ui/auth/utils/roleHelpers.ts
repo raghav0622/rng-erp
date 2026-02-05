@@ -3,7 +3,7 @@
  * Provides role-related logic and RBAC checks
  */
 
-import type { AppUser } from '../../app-auth-service/internal-app-user-service/app-user.contracts';
+import { AppUser } from '@/rng-platform';
 
 export type AppUserRole = 'owner' | 'manager' | 'employee' | 'client';
 

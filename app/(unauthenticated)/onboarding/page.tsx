@@ -1,12 +1,9 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components';
-import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
-import { ownerSignUpSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
-import { useOwnerSignUp } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
-import { useIsOwnerBootstrapped } from '@/rng-platform/rng-auth/app-auth-hooks/useBootstrapQueries';
-import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
+import type { AppAuthError } from '@/rng-platform';
+import { ownerSignUpSchema, useIsOwnerBootstrapped, useOwnerSignUp } from '@/rng-platform';
+import { RNGLoadingOverlay, useRNGNotification } from '@/rng-ui/ux';
 import { Alert, Container, Stack, Text } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -17,7 +14,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { data: isBootstrapped, isLoading } = useIsOwnerBootstrapped();
   const ownerSignUp = useOwnerSignUp();
-  const notifications = useAuthNotifications();
+  const notifications = useRNGNotification();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
 
   useEffect(() => setExternalErrors([]), []);
@@ -48,7 +45,7 @@ export default function OnboardingPage() {
     }
   };
 
-  if (isLoading) return <AuthLoadingOverlay message="Checking setup status..." />;
+  if (isLoading) return <RNGLoadingOverlay message="Checking setup status..." />;
 
   if (isBootstrapped) {
     return (

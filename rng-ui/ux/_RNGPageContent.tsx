@@ -15,7 +15,7 @@ export interface RNGPageContentProps {
   padding?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export default function RNGPageContent({
+export function RNGPageContent({
   title,
   description,
   actions,

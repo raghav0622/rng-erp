@@ -3,7 +3,7 @@
  * Provides user-related logic and transformations
  */
 
-import type { AppUser } from '../../app-auth-service/internal-app-user-service/app-user.contracts';
+import { AppUser } from '@/rng-platform';
 
 /**
  * Get user's full display name

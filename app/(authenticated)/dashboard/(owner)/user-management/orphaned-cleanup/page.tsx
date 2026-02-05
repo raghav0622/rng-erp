@@ -8,7 +8,7 @@ import type { AppUser } from '@/rng-platform/rng-auth/app-auth-service/internal-
 import { RNGPageContent } from '@/rng-ui/ux/_RNGPageContent';
 import { Alert, Button, Center, Group, Loader, Stack, Text } from '@mantine/core';
 import { IconAlertCircle, IconAlertTriangle, IconTrash } from '@tabler/icons-react';
-import { Suspense, useState } from 'react';
+import { useState } from 'react';
 
 /**
  * User Management - Orphaned Users Cleanup
@@ -16,20 +16,6 @@ import { Suspense, useState } from 'react';
  * WARNING: This performs permanent deletion from Firebase Auth
  */
 export default function OrphanedCleanupPage() {
-  return (
-    <Suspense
-      fallback={
-        <Center h={400}>
-          <Loader />
-        </Center>
-      }
-    >
-      <OrphanedCleanupContent />
-    </Suspense>
-  );
-}
-
-function OrphanedCleanupContent() {
   const { data: orphanedUsers = [], isLoading } = useListOrphanedUsers();
   const cleanupOrphanedUser = useCleanupOrphanedUser();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);

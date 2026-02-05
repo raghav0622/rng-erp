@@ -14,7 +14,7 @@ export function RNGLoadingOverlay({
   message = 'Loading...',
   description,
   icon,
-  fullHeight = true,
+  fullHeight = false,
 }: RNGLoadingOverlayProps) {
   return (
     <Center style={{ minHeight: fullHeight ? '100dvh' : '400px' }}>

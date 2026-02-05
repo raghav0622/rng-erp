@@ -1,11 +1,7 @@
 'use client';
 
-import { Center, Loader } from '@mantine/core';
+import { RNGLoadingOverlay } from '@/rng-ui/ux';
 
-export default function DashboardLoadingFallback() {
-  return (
-    <Center h="100vh">
-      <Loader size="lg" />
-    </Center>
-  );
+export default function AppLoader() {
+  return <RNGLoadingOverlay />;
 }

@@ -1,17 +1,16 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
-import { sendPasswordResetEmailSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
-import { useSendPasswordResetEmail } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
-import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
+import type { AppAuthError } from '@/rng-platform';
+import { sendPasswordResetEmailSchema, useSendPasswordResetEmail } from '@/rng-platform';
+import { useRNGNotification } from '@/rng-ui/ux';
 import { Alert, Anchor, Button, Container, Group, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconCheck, IconMail } from '@tabler/icons-react';
 import { useState } from 'react';
 
 export default function ForgotPasswordPage() {
   const sendResetEmail = useSendPasswordResetEmail();
-  const notifications = useAuthNotifications();
+  const notifications = useRNGNotification();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [emailSent, setEmailSent] = useState(false);
   const [sentEmail, setSentEmail] = useState('');

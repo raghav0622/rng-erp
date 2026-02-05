@@ -1,4 +1,4 @@
-import type { AppAuthError } from '../../app-auth-service/app-auth.errors';
+import { AppAuthError } from '@/rng-platform';
 
 export const handleMutationError = (
   error: unknown,

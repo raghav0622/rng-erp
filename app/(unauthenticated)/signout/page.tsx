@@ -1,7 +1,7 @@
 'use client';
 import { globalLogger } from '@/lib';
 import { useSignOut } from '@/rng-platform/rng-auth';
-import { AuthLoadingOverlay } from '@/rng-platform/rng-auth/app-auth-components';
+import { RNGLoadingOverlay } from '@/rng-ui/ux';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 export default function SignOutPage() {
@@ -24,5 +24,5 @@ export default function SignOutPage() {
     performSignOut();
   }, [signout, router]);
 
-  return <AuthLoadingOverlay message="Signing You Out" />;
+  return <RNGLoadingOverlay message="Signing You Out" />;
 }

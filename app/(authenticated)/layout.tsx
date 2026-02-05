@@ -1,10 +1,6 @@
-import AuthenticatedLayout from '@/rng-ui/layouts/authenticated/AuthenticatedLayout';
+import { AuthenticatedLayout } from '@/rng-ui/layouts/authenticated';
 import { ReactNode } from 'react';
 
-interface AuthenticatedLayoutProps {
-  children: ReactNode;
-}
-
-export default function Layout({ children }: AuthenticatedLayoutProps) {
+export default function Layout({ children }: { children: ReactNode }) {
   return <AuthenticatedLayout>{children}</AuthenticatedLayout>;
 }

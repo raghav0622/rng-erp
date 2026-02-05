@@ -21,7 +21,12 @@
     "vitest.config.ts",
     "postcss.config.cjs",
     "next.config.ts",
-    "types"
+    "types",
+    "app/robots.ts",
+    "app/loading.tsx",
+    "app/page.tsx",
+    "app/layout.tsx",
+    "app/globals.css"
   ],
   "files.exclude": {
     "**/.git": true,
@@ -45,6 +50,11 @@
     "vitest.config.ts": true,
     "postcss.config.cjs": true,
     "next.config.ts": true,
-    "types": true
+    "types": true,
+    "app/robots.ts": true,
+    "app/loading.tsx": true,
+    "app/page.tsx": true,
+    "app/layout.tsx": true,
+    "app/globals.css": true
   }
 }

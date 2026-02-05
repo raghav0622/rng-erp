@@ -3,8 +3,7 @@
  * Prevents common form submission issues (double submission, validation errors, etc.)
  */
 
-import { AppError, AppErrorCode, Result } from '@/lib/types';
-import { FormErrorHandler } from '../types/errors';
+import { AppError, AppErrorCode, FormErrorHandler, Result } from '../types/errors';
 
 export interface FormSubmissionOptions<T> {
   onValidationError?: (errors: Record<string, string[]>) => void;

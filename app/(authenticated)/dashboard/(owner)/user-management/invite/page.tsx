@@ -1,18 +1,13 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { inviteUserSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
-import { useInviteUser } from '@/rng-platform/rng-auth/app-auth-hooks/useUserManagementMutations';
-import { RNGPageContent } from '@/rng-ui/ux/_RNGPageContent';
+import { inviteUserSchema, useInviteUser } from '@/rng-platform';
+import { RNGPageContent } from '@/rng-ui/ux';
 import { Alert, Center, Loader, Stack, Text } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-/**
- * Invite User Page - Send team member invitations
- * Dedicated page for inviting new users to the organization
- */
 export default function InviteUserPage() {
   const router = useRouter();
   const inviteUser = useInviteUser();

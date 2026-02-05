@@ -2,14 +2,6 @@
 
 import { useCurrentUser } from '@/rng-platform/rng-auth';
 import {
-  EmailVerificationBadge,
-  UserActionsMenu,
-  UserCardDesign,
-  UserInfoTable,
-  UserSearchInput,
-  UserStatusBadge,
-} from '@/rng-platform/rng-auth/app-auth-components';
-import {
   useDeleteUser,
   useResendInvite,
   useRestoreUser,
@@ -18,8 +10,16 @@ import {
 } from '@/rng-platform/rng-auth/app-auth-hooks/useUserManagementMutations';
 import { useListUsersPaginated } from '@/rng-platform/rng-auth/app-auth-hooks/useUserQueries';
 import type { AppUser } from '@/rng-platform/rng-auth/app-auth-service/internal-app-user-service/app-user.contracts';
+import {
+  UserActionsMenu,
+  UserCardDesign,
+  UserInfoTable,
+  UserSearchInput,
+  UserStatusBadge,
+} from '@/rng-ui/auth';
+import EmailVerificationBadge from '@/rng-ui/auth/_EmailVerificationBadge';
+import { RNGPageContent } from '@/rng-ui/ux';
 import { RNGModal } from '@/rng-ui/ux/_RNGModal';
-import RNGPageContent from '@/rng-ui/ux/_RNGPageContent';
 import {
   Avatar,
   Badge,

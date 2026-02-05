@@ -1,7 +1,7 @@
 'use client';
 
-import { useIsOwnerBootstrapped } from '@/rng-platform/rng-auth/app-auth-hooks/useBootstrapQueries';
-import UnauthenticatedLayout from '@/rng-ui/layouts/unauthenticated/UnauthenticatedLayout';
+import { useIsOwnerBootstrapped } from '@/rng-platform';
+import { UnauthenticatedLayout } from '@/rng-ui/layouts';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect } from 'react';
 

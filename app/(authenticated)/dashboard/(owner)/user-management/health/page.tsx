@@ -1,47 +1,12 @@
 'use client';
 
-import {
-  useIsOwnerBootstrapped,
-  useListOrphanedUsers,
-  useListUsers,
-} from '@/rng-platform/rng-auth/app-auth-hooks';
-import { RNGPageContent } from '@/rng-ui/ux/_RNGPageContent';
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Center,
-  Group,
-  Loader,
-  Paper,
-  Progress,
-  Stack,
-  Text,
-} from '@mantine/core';
+import { useIsOwnerBootstrapped, useListOrphanedUsers, useListUsers } from '@/rng-platform';
+import { RNGPageContent } from '@/rng-ui/ux';
+import { Alert, Badge, Button, Card, Group, Paper, Progress, Stack, Text } from '@mantine/core';
 import { IconAlertCircle, IconCheck, IconClock, IconRefresh, IconX } from '@tabler/icons-react';
 import Link from 'next/link';
-import { Suspense } from 'react';
 
-/**
- * User Management - System Health Dashboard
- * Owner-only page for monitoring auth system health
- */
 export default function HealthDashboardPage() {
-  return (
-    <Suspense
-      fallback={
-        <Center h={400}>
-          <Loader />
-        </Center>
-      }
-    >
-      <HealthDashboardContent />
-    </Suspense>
-  );
-}
-
-function HealthDashboardContent() {
   const { data: users, refetch: refetchUsers, isRefetching } = useListUsers();
   const { data: orphanedUsers, refetch: refetchOrphaned } = useListOrphanedUsers();
   const { data: isOwnerBootstrapped } = useIsOwnerBootstrapped();

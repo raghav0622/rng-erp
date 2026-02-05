@@ -1,10 +1,9 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { useAuthNotifications } from '@/rng-platform/rng-auth/app-auth-hooks';
-import { signUpWithInviteSchema } from '@/rng-platform/rng-auth/app-auth-hooks/schemas';
-import { useSignUpWithInvite } from '@/rng-platform/rng-auth/app-auth-hooks/useAuthMutations';
-import type { AppAuthError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
+import type { AppAuthError } from '@/rng-platform';
+import { signUpWithInviteSchema, useSignUpWithInvite } from '@/rng-platform';
+import { useRNGNotification } from '@/rng-ui/ux';
 import { Anchor, Container, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -14,7 +13,7 @@ export default function SignUpWithInvitePage() {
   const redirectTo = '/dashboard';
   const router = useRouter();
   const signUpWithInvite = useSignUpWithInvite();
-  const notifications = useAuthNotifications();
+  const notifications = useRNGNotification();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [signupComplete, setSignupComplete] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);

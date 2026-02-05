@@ -14,9 +14,8 @@
  * ```
  */
 
+import { appAuthService, authQueryKeys } from '@/rng-platform';
 import { QueryClient } from '@tanstack/react-query';
-import { authQueryKeys } from '../../app-auth-hooks/keys';
-import { appAuthService } from '../../app-auth-service/app-auth.service';
 
 /**
  * Prefetch user detail by ID
@@ -70,17 +69,6 @@ export async function prefetchOwnerBootstrap(queryClient: QueryClient) {
     queryKey: authQueryKeys.isOwnerBootstrapped(),
     queryFn: () => appAuthService.isOwnerBootstrapped(),
     staleTime: 5 * 60 * 1000, // Consider fresh for 5 minutes (rarely changes)
-  });
-}
-
-/**
- * Prefetch orphaned users list (maintenance)
- */
-export async function prefetchOrphanedUsers(queryClient: QueryClient) {
-  await queryClient.prefetchQuery({
-    queryKey: authQueryKeys.orphanedUsers(),
-    queryFn: () => appAuthService.listOrphanedLinkedUsers(),
-    staleTime: 60 * 1000,
   });
 }
 
