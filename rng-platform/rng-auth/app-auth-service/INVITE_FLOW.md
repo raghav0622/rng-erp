@@ -28,9 +28,9 @@
 ┌─────────────────────────────────────────────┐
 │ 4. Link authUid to AppUser (3 steps)        │
 │    a) Create disabled copy with authUid     │
-│    b) Soft-delete original invite record    │
+│    b) Hard-delete original invite record    │
 │    c) Verify linking succeeded              │
-│    [Rollback if soft-delete fails - BUG #23]│
+│    [Rollback if hard-delete fails]          │
 └────────────────┬────────────────────────────┘
                  │
                  ▼
@@ -84,7 +84,7 @@ All Auth + Firestore transitions are non-atomic. Mitigation strategies:
 **Detection**: Invariant check detects revoked status  
 **Recovery**: Error thrown; user must be re-invited by owner
 
-### Case 4: Soft-delete fails during linking
+### Case 4: Hard-delete fails during linking
 
 **Happens if**: Firestore write failure after disabled user created  
 **Detection**: Rollback mechanism checks and deletes disabled copy  

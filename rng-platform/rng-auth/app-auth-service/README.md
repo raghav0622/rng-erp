@@ -37,7 +37,6 @@ This module is intentionally client-only. It does not use Admin SDK or server-si
 - No atomic Auth + Firestore operations (client-side by design)
 - No distributed transactions or server-side locks
 - No server-enforced uniqueness (invariants are best-effort)
-- No global session revocation
 - Partial failures are expected and managed via invariant checks
 
 ## Implementation Highlights

@@ -321,6 +321,7 @@ export default function RNGForm<TValues extends FieldValues = any>({
           size={typeof maxWidth === 'string' ? maxWidth : undefined}
           className={className}
           style={containerStyles}
+          px={0}
         >
           <form
             onSubmit={(event) => {

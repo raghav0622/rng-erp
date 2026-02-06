@@ -1,4 +1,4 @@
-import { clientStorage, globalLogger } from '@/lib';
+import { clientDb, clientStorage, globalLogger } from '@/lib';
 import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
@@ -57,6 +57,7 @@ import {
   assertUserIdMatchesAuthUid,
 } from './internal-app-user-service/app-user.invariants';
 import { AppUserService } from './internal-app-user-service/app-user.service';
+import { sessionRepository } from './session.repository';
 
 /**
  * AppAuthService — Frozen v1
@@ -91,10 +92,14 @@ class AppAuthService implements IAppAuthService {
     lastAuthError: null,
     sessionExpiresAt: null,
   };
+  private currentSessionId: string | null = null;
+  private sessionHeartbeatTimer: NodeJS.Timeout | null = null;
+  private sessionExpiryWarningShown = false;
   private listeners: Set<(session: AuthSession) => void> = new Set();
   private appUserService = new AppUserService();
   private auth = getAuth();
   private storage = clientStorage;
+  private db = clientDb;
   // Serialization: Session mutations are queued and executed sequentially
   private sessionMutationQueue: (() => Promise<void>)[] = [];
   private sessionMutationInProgress = false;
@@ -120,6 +125,7 @@ class AppAuthService implements IAppAuthService {
   private static readonly WAIT_FOR_MUTATION_TIMEOUT_MS = 60000;
   private static readonly SESSION_EXPIRY_HOURS = 24;
   private static readonly SESSION_EXPIRY_CHECK_INTERVAL_MS = 1000;
+  private static readonly SESSION_HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
   private static readonly MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
   private static readonly ALLOWED_PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
   private static readonly PHOTO_EXTENSIONS = {
@@ -159,6 +165,196 @@ class AppAuthService implements IAppAuthService {
       currentLimit.count++;
     } else {
       limitsMap.set(userId, { count: 1, resetAt: now + 60 * 1000 });
+    }
+  }
+
+  /**
+   * Create a new session in Firestore for cross-device session tracking.
+   * Returns the session ID.
+   */
+  private async createSession(userId: string): Promise<string> {
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS);
+
+    const deviceInfo =
+      typeof window !== 'undefined'
+        ? {
+            userAgent: window.navigator.userAgent,
+            platform: window.navigator.platform,
+          }
+        : undefined;
+
+    try {
+      const session = await sessionRepository.create({
+        userId,
+        lastSeenAt: new Date(),
+        expiresAt,
+        revoked: false,
+        deviceInfo,
+      });
+
+      globalLogger.info('[AppAuthService] Session created in Firestore', {
+        sessionId: session.id,
+        userId,
+        expiresAt,
+      });
+
+      return session.id;
+    } catch (err) {
+      globalLogger.error('[AppAuthService] Failed to create session in Firestore', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Don't fail auth if session creation fails - session tracking is non-critical
+      throw err;
+    }
+  }
+
+  /**
+   * Destroy the current session in Firestore.
+   */
+  private async destroySession(sessionId: string): Promise<void> {
+    if (!sessionId) return;
+
+    try {
+      await sessionRepository.delete(sessionId);
+      globalLogger.info('[AppAuthService] Session destroyed in Firestore', { sessionId });
+    } catch (err) {
+      globalLogger.warn('[AppAuthService] Failed to destroy session in Firestore', {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Don't fail logout if session destruction fails
+    }
+  }
+
+  /**
+   * Start sending periodic heartbeats to keep the session alive in Firestore.
+   */
+  private startSessionHeartbeat(): void {
+    if (this.sessionHeartbeatTimer) {
+      clearInterval(this.sessionHeartbeatTimer);
+    }
+
+    this.sessionHeartbeatTimer = setInterval(async () => {
+      if (!this.currentSessionId || this.session.state !== 'authenticated') {
+        this.stopSessionHeartbeat();
+        return;
+      }
+
+      try {
+        await sessionRepository.updateHeartbeat(this.currentSessionId);
+        globalLogger.debug('[AppAuthService] Session heartbeat sent', {
+          sessionId: this.currentSessionId,
+        });
+
+        // Also check if session was revoked
+        await this.validateCurrentSession();
+      } catch (err) {
+        globalLogger.warn('[AppAuthService] Session heartbeat failed', {
+          sessionId: this.currentSessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }, AppAuthService.SESSION_HEARTBEAT_INTERVAL_MS);
+
+    globalLogger.info('[AppAuthService] Session heartbeat started', {
+      interval: AppAuthService.SESSION_HEARTBEAT_INTERVAL_MS,
+    });
+  }
+
+  /**
+   * Stop sending session heartbeats.
+   */
+  private stopSessionHeartbeat(): void {
+    if (this.sessionHeartbeatTimer) {
+      clearInterval(this.sessionHeartbeatTimer);
+      this.sessionHeartbeatTimer = null;
+      globalLogger.info('[AppAuthService] Session heartbeat stopped');
+    }
+  }
+
+  /**
+   * Validate the current session in Firestore.
+   * If session is revoked or expired, force logout.
+   */
+  private async validateCurrentSession(): Promise<void> {
+    if (!this.currentSessionId || this.session.state !== 'authenticated') {
+      return;
+    }
+
+    try {
+      const session = await sessionRepository.getById(this.currentSessionId);
+
+      if (!session) {
+        globalLogger.warn('[AppAuthService] Session not found in Firestore, forcing logout', {
+          sessionId: this.currentSessionId,
+        });
+        this.currentSessionId = null;
+        this.stopSessionHeartbeat();
+        // Set error state for UI notification
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: {
+            error: new Error('Your session is no longer valid. Please sign in again.'),
+            timestamp: new Date(),
+          },
+          sessionExpiresAt: null,
+        });
+        return;
+      }
+
+      if (session.revoked) {
+        globalLogger.warn('[AppAuthService] Session revoked by admin, forcing logout', {
+          sessionId: this.currentSessionId,
+          revokedAt: session.revokedAt,
+        });
+        this.currentSessionId = null;
+        this.stopSessionHeartbeat();
+        // Set UserDisabledError for UI to show appropriate message
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: {
+            error: new UserDisabledError(),
+            timestamp: new Date(),
+          },
+          sessionExpiresAt: null,
+        });
+        return;
+      }
+
+      if (session.expiresAt && new Date() > session.expiresAt) {
+        globalLogger.warn('[AppAuthService] Session expired, forcing logout', {
+          sessionId: this.currentSessionId,
+          expiresAt: session.expiresAt,
+        });
+        this.currentSessionId = null;
+        this.stopSessionHeartbeat();
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: {
+            error: new Error('Your session has expired. Please sign in again.'),
+            timestamp: new Date(),
+          },
+          sessionExpiresAt: null,
+        });
+        return;
+      }
+    } catch (err) {
+      globalLogger.error('[AppAuthService] Session validation failed', {
+        sessionId: this.currentSessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Don't force logout on validation errors - could be transient network issue
     }
   }
 
@@ -788,6 +984,22 @@ class AppAuthService implements IAppAuthService {
   async signOut(): Promise<void> {
     return this.withAuthOperation(async () => {
       let signOutFailed = false;
+
+      // Stop session heartbeat
+      this.stopSessionHeartbeat();
+
+      // Destroy session in Firestore
+      if (this.currentSessionId) {
+        try {
+          await this.destroySession(this.currentSessionId);
+          this.currentSessionId = null;
+        } catch (err) {
+          globalLogger.warn('[AppAuthService] Failed to destroy session during sign out', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       try {
         // Clear session cookie first
         await this.clearSessionCookie();
@@ -894,7 +1106,8 @@ class AppAuthService implements IAppAuthService {
 
     // BUG #10 FIX: Active session expiry enforcement via background timer
     // BUG #27 FIX: Stop timer when session ends to prevent resource leaks
-    this.sessionExpiryTimer = setInterval(() => {
+    // ENHANCEMENT: Also check for disabled status periodically for instant logout
+    this.sessionExpiryTimer = setInterval(async () => {
       // Stop timer when logged out to save resources
       if (this.session.state !== 'authenticated') {
         if (this.sessionExpiryTimer) {
@@ -906,8 +1119,44 @@ class AppAuthService implements IAppAuthService {
         return;
       }
 
+      // Check session expiry
       if (this.session.sessionExpiresAt) {
-        if (new Date() > this.session.sessionExpiresAt) {
+        const now = new Date();
+        const expiresAt = this.session.sessionExpiresAt;
+        const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        // Session expiry warning: 5 minutes before expiry
+        if (
+          timeUntilExpiry > 0 &&
+          timeUntilExpiry <= fiveMinutes &&
+          !this.sessionExpiryWarningShown
+        ) {
+          this.sessionExpiryWarningShown = true;
+          const minutesRemaining = Math.ceil(timeUntilExpiry / 60000);
+          globalLogger.info('[AppAuthService] Session expiring soon, notifying user', {
+            minutesRemaining,
+          });
+          // Emit warning by setting a temporary auth error that UI can detect
+          // This doesn't log out the user, just notifies them
+          this.listeners.forEach((cb) => {
+            try {
+              cb({
+                ...this.session,
+                lastAuthError: {
+                  error: new Error(`SESSION_EXPIRING:${minutesRemaining}`),
+                  timestamp: new Date(),
+                },
+              });
+            } catch (err) {
+              globalLogger.warn('[AppAuthService] Listener error for expiry warning', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          });
+        }
+        
+        if (now > expiresAt) {
           globalLogger.warn(
             '[AppAuthService] Session expired by background timer; forcing logout',
             {
@@ -920,10 +1169,59 @@ class AppAuthService implements IAppAuthService {
             user: null,
             emailVerified: null,
             lastTransitionError: null,
-            lastAuthError: null,
+            lastAuthError: {
+              error: new Error('Your session has expired. Please sign in again.'),
+              timestamp: new Date(),
+            },
             sessionExpiresAt: null,
           });
           // Timer will self-stop on next iteration when state !== 'authenticated'
+          return;
+        }
+      }
+
+      // INSTANT LOGOUT: Check if user has been disabled (every 5 seconds)
+      // This ensures disabled users are logged out even if they don't trigger any other checks
+      if (this.session.user) {
+        try {
+          // Validate session in Firestore for cross-device logout
+          await this.validateCurrentSession();
+
+          // Check if user has been disabled in Firestore
+          const freshUser = await this.appUserService.getUserById(this.session.user.id);
+          if (freshUser && freshUser.isDisabled) {
+            globalLogger.warn('[AppAuthService] User disabled by owner; forcing instant logout', {
+              userId: this.session.user.id,
+            });
+            // Force sign out from Firebase Auth
+            try {
+              await firebaseSignOut(this.auth);
+            } catch (signOutErr) {
+              globalLogger.error('[AppAuthService] Failed to sign out disabled user', {
+                error: signOutErr instanceof Error ? signOutErr.message : String(signOutErr),
+              });
+            }
+            // Clear session
+            this.setSession({
+              state: 'unauthenticated',
+              user: null,
+              emailVerified: null,
+              lastTransitionError: null,
+              lastAuthError: {
+                error: new UserDisabledError(),
+                timestamp: new Date(),
+              },
+              sessionExpiresAt: null,
+            });
+            // Timer will self-stop on next iteration
+          }
+        } catch (err) {
+          // Don't crash the timer if disabled check fails
+          // User will be caught by other mechanisms (middleware, token refresh, etc.)
+          globalLogger.warn('[AppAuthService] Failed to check disabled status in background', {
+            userId: this.session.user.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     }, 5000); // Check every 5 seconds
@@ -934,6 +1232,8 @@ class AppAuthService implements IAppAuthService {
       this.unsubscribeAuthState();
       this.unsubscribeAuthState = null;
     }
+    // Stop heartbeat timer
+    this.stopSessionHeartbeat();
     // MISSED-003 FIX: Clear pending auth state changes to prevent memory leak
     this.pendingAuthStateChanges = [];
     // NEW-065 FIX: Clear pending replay timers to prevent post-disposal execution
@@ -1411,6 +1711,18 @@ class AppAuthService implements IAppAuthService {
             lastAuthError: null,
             sessionExpiresAt,
           });
+
+          // Create session in Firestore and start heartbeat
+          try {
+            this.currentSessionId = await this.createSession(user.id);
+            this.startSessionHeartbeat();
+            this.sessionExpiryWarningShown = false; // Reset warning flag
+          } catch (sessionErr) {
+            globalLogger.warn('[AppAuthService] Failed to create session during owner sign up', {
+              error: sessionErr instanceof Error ? sessionErr.message : String(sessionErr),
+            });
+          }
+
           return this.session;
         } catch (err) {
           await cred.user.delete();
@@ -1463,6 +1775,18 @@ class AppAuthService implements IAppAuthService {
           lastAuthError: null,
           sessionExpiresAt,
         });
+        
+        // Create session in Firestore and start heartbeat
+        try {
+          this.currentSessionId = await this.createSession(appUser.id);
+          this.startSessionHeartbeat();
+          this.sessionExpiryWarningShown = false; // Reset warning flag
+        } catch (sessionErr) {
+          globalLogger.warn('[AppAuthService] Failed to create session during sign in', {
+            error: sessionErr instanceof Error ? sessionErr.message : String(sessionErr),
+          });
+        }
+        
         return this.session;
       } catch (err) {
         await firebaseSignOut(this.auth);
@@ -1658,22 +1982,98 @@ class AppAuthService implements IAppAuthService {
     // MISSED-006 FIX: Normalize email at API boundary
     const normalizedEmail = normalizeEmail(email);
     return this.withAuthOperation(async () => {
+      // Set authenticating state at the start of the flow
+      this.setSession({
+        state: 'authenticating',
+        user: null,
+        emailVerified: null,
+        lastTransitionError: null,
+        lastAuthError: null,
+        sessionExpiresAt: null,
+      });
+
       let invitedUser: AppUser | null = null;
       try {
         invitedUser = await this.appUserService.getUserByEmail(normalizedEmail);
       } catch (err) {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         throw new InviteInvalidError();
       }
-      if (!invitedUser) throw new InviteInvalidError();
-      if (invitedUser.inviteStatus === 'revoked') throw new InviteRevokedError();
-      if (invitedUser.inviteStatus === 'activated') throw new InviteAlreadyAcceptedError();
-      if (invitedUser.inviteStatus !== 'invited') throw new InviteInvalidError();
-      if (invitedUser.isDisabled) throw new NotAuthorizedError();
+      if (!invitedUser) {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+        throw new InviteInvalidError();
+      }
+      if (invitedUser.inviteStatus === 'revoked') {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+        throw new InviteRevokedError();
+      }
+      if (invitedUser.inviteStatus === 'activated') {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+        throw new InviteAlreadyAcceptedError();
+      }
+      if (invitedUser.inviteStatus !== 'invited') {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+        throw new InviteInvalidError();
+      }
+      if (invitedUser.isDisabled) {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+        throw new NotAuthorizedError();
+      }
 
       let cred;
       try {
         cred = await createUserWithEmailAndPassword(this.auth, normalizedEmail, password);
       } catch (err) {
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         throw mapFirebaseAuthError(err);
       }
 
@@ -1682,19 +2082,51 @@ class AppAuthService implements IAppAuthService {
         freshUser = await this.appUserService.getUserByEmail(normalizedEmail);
       } catch (err) {
         await cred.user.delete();
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         throw new InviteInvalidError();
       }
       if (!freshUser) {
         await cred.user.delete();
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         throw new InviteInvalidError();
       }
       if (freshUser.id === cred.user.uid) {
         await cred.user.delete();
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         throw new InviteAlreadyAcceptedError();
       }
       // NEW-056 FIX: Check invite status immediately after fetch to catch concurrent revocation
       if (freshUser.inviteStatus !== 'invited') {
         await cred.user.delete();
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         if (freshUser.inviteStatus === 'revoked') {
           throw new InviteRevokedError();
         }
@@ -1706,6 +2138,14 @@ class AppAuthService implements IAppAuthService {
       const finalCheckBeforeLink = await this.appUserService.getUserByEmail(normalizedEmail);
       if (!finalCheckBeforeLink || finalCheckBeforeLink.inviteStatus !== 'invited') {
         await cred.user.delete();
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         globalLogger.warn('[AppAuthService] Invite was revoked between auth creation and linking', {
           email: normalizedEmail,
           status: finalCheckBeforeLink?.inviteStatus,
@@ -1724,6 +2164,14 @@ class AppAuthService implements IAppAuthService {
             { email, userId: linkedUser!.id, inviteStatus: linkedUser!.inviteStatus },
           );
           await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
+          this.setSession({
+            state: 'unauthenticated',
+            user: null,
+            emailVerified: null,
+            lastTransitionError: null,
+            lastAuthError: null,
+            sessionExpiresAt: null,
+          });
           // NEW-031 FIX: Use more specific error if revoked
           if (linkedUser!.inviteStatus === 'revoked') {
             throw new InviteRevokedError();
@@ -1749,6 +2197,14 @@ class AppAuthService implements IAppAuthService {
           error: err instanceof Error ? err.message : String(err),
         });
         await this.appUserService.updateUserStatus(cred.user.uid, { isDisabled: true });
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         // NEW-034 FIX: Re-throw without attempting activation
         rethrowOrMapAuthError(err);
       }
@@ -1785,6 +2241,10 @@ class AppAuthService implements IAppAuthService {
         sessionExpiresAt.setHours(
           sessionExpiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS,
         );
+
+        // Sync ID token to session cookie
+        await this.syncTokenToCookie(cred.user);
+
         this.setSession({
           state: 'authenticated',
           user: appUser,
@@ -1793,6 +2253,18 @@ class AppAuthService implements IAppAuthService {
           lastAuthError: null,
           sessionExpiresAt,
         });
+
+        // Create session in Firestore and start heartbeat
+        try {
+          this.currentSessionId = await this.createSession(appUser.id);
+          this.startSessionHeartbeat();
+          this.sessionExpiryWarningShown = false; // Reset warning flag
+        } catch (sessionErr) {
+          globalLogger.warn('[AppAuthService] Failed to create session during signup with invite', {
+            error: sessionErr instanceof Error ? sessionErr.message : String(sessionErr),
+          });
+        }
+
         return this.session;
       } catch (err) {
         globalLogger.error(
@@ -1805,6 +2277,14 @@ class AppAuthService implements IAppAuthService {
               'User left disabled. Use appAuthService.cleanupOrphanedLinkedUser(authUid) after investigation',
           },
         );
+        this.setSession({
+          state: 'unauthenticated',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
         // Do NOT delete Firebase user after successful linking - Firestore owns authority
         // User is already disabled above; cleanup APIs will handle recovery
         throw mapFirebaseAuthError(err);
@@ -2059,7 +2539,109 @@ class AppAuthService implements IAppAuthService {
       AppAuthService.OWNER_OP_RATE_LIMIT_PER_MINUTE,
     );
     try {
-      return await this.appUserService.updateUserStatus(userId, data);
+      // First update Firestore status
+      const result = await this.appUserService.updateUserStatus(userId, data);
+
+      globalLogger.info('[AppAuthService] Firestore user status updated', {
+        userId,
+        isDisabled: data.isDisabled,
+      });
+
+      // Then enforce it in Firebase Auth for instant effect
+      if (data.isDisabled) {
+        // Disable user: revoke all Firestore sessions (forces instant multi-device logout)
+        globalLogger.info('[AppAuthService] Attempting to revoke user sessions', {
+          userId,
+          endpoint: '/api/auth/revoke-user-sessions',
+        });
+
+        try {
+          const revokeResponse = await fetch('/api/auth/revoke-user-sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: userId }),
+          });
+
+          if (!revokeResponse.ok) {
+            const errorData = await revokeResponse.json().catch(() => ({ error: 'Unknown error' }));
+            globalLogger.error(
+              '[AppAuthService] Failed to revoke user sessions (Firestore updated)',
+              {
+                userId,
+                status: revokeResponse.status,
+                statusText: revokeResponse.statusText,
+                error: errorData.error,
+              },
+            );
+            // Don't throw - Firestore is already updated
+          } else {
+            const responseData = await revokeResponse.json();
+            globalLogger.info(
+              '[AppAuthService] User sessions revoked in Firestore for instant logout',
+              {
+                userId,
+                revokedCount: responseData.revokedCount,
+              },
+            );
+          }
+        } catch (apiErr) {
+          globalLogger.error(
+            '[AppAuthService] Exception during session revocation (Firestore updated)',
+            {
+              userId,
+              error: apiErr instanceof Error ? apiErr.message : String(apiErr),
+              stack: apiErr instanceof Error ? apiErr.stack : undefined,
+            },
+          );
+          // Don't throw - Firestore is already updated
+        }
+      } else {
+        // Enable user: re-enable in Firebase Auth
+        globalLogger.info('[AppAuthService] Attempting to enable user in Firebase Auth', {
+          userId,
+          endpoint: '/api/auth/enable-user',
+        });
+
+        try {
+          const enableResponse = await fetch('/api/auth/enable-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: userId }),
+          });
+
+          if (!enableResponse.ok) {
+            const errorData = await enableResponse.json().catch(() => ({ error: 'Unknown error' }));
+            globalLogger.error(
+              '[AppAuthService] Failed to enable user in Firebase Auth (Firestore updated)',
+              {
+                userId,
+                status: enableResponse.status,
+                statusText: enableResponse.statusText,
+                error: errorData.error,
+              },
+            );
+            // Don't throw - Firestore is already updated
+          } else {
+            const responseData = await enableResponse.json();
+            globalLogger.info('[AppAuthService] User enabled in Firebase Auth', {
+              userId,
+              enabledAt: responseData.enabledAt,
+            });
+          }
+        } catch (apiErr) {
+          globalLogger.error(
+            '[AppAuthService] Exception during user enablement (Firestore updated)',
+            {
+              userId,
+              error: apiErr instanceof Error ? apiErr.message : String(apiErr),
+              stack: apiErr instanceof Error ? apiErr.stack : undefined,
+            },
+          );
+          // Don't throw - Firestore is already updated
+        }
+      }
+
+      return result;
     } catch (err) {
       rethrowOrMapAuthError(err);
     }

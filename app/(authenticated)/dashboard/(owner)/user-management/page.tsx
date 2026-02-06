@@ -497,6 +497,7 @@ export default function UserManagementPage() {
                       closeModal();
                       onClose();
                     }}
+                    disabled={isUpdatingStatus}
                   >
                     Cancel
                   </Button>
@@ -509,6 +510,7 @@ export default function UserManagementPage() {
                         });
                       }
                     }}
+                    loading={isUpdatingStatus}
                   >
                     Confirm
                   </Button>
@@ -535,6 +537,7 @@ export default function UserManagementPage() {
                     closeModal();
                     onClose();
                   }}
+                  disabled={isDeleting}
                 >
                   Cancel
                 </Button>
@@ -545,6 +548,8 @@ export default function UserManagementPage() {
                       onClose();
                     });
                   }}
+                  loading={isDeleting}
+                  color="red"
                 >
                   Delete User
                 </Button>

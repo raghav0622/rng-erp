@@ -1,10 +1,15 @@
 'use client';
 
 import { RNGForm, createFormBuilder } from '@/rng-forms';
-import { useRequireAuthenticated, useUpdateUserPhoto, useUpdateUserProfile } from '@/rng-platform';
-import { useRNGNotification } from '@/rng-ui/ux';
-import { Alert, Container, Stack } from '@mantine/core';
-import { IconUser } from '@tabler/icons-react';
+import {
+  changePasswordSchema,
+  useChangePassword,
+  useRequireAuthenticated,
+  useUpdateUserPhoto,
+  useUpdateUserProfile,
+} from '@/rng-platform';
+import { RNGModal, RNGPageContent, useRNGNotification } from '@/rng-ui/ux';
+import { Alert, Button, Group, Stack } from '@mantine/core';
 import { useState } from 'react';
 import { z } from 'zod';
 
@@ -31,9 +36,12 @@ export default function ProfilePage() {
   const user = useRequireAuthenticated();
   const updatePhoto = useUpdateUserPhoto();
   const updateProfile = useUpdateUserProfile();
+  const changePassword = useChangePassword();
   const notifications = useRNGNotification();
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   const handleSubmit = async (values: EditProfileFormValues) => {
     setExternalErrors([]);
@@ -91,36 +99,108 @@ export default function ProfilePage() {
     }
   };
 
+  const handlePasswordSubmit = async (values: { currentPassword: string; newPassword: string }) => {
+    setPasswordErrors([]);
+    setPasswordSuccess(false);
+
+    try {
+      await changePassword.mutateAsync(values);
+      setPasswordSuccess(true);
+    } catch (error) {
+      const appError = error as any;
+      const errorMsg = appError?.message || 'Failed to update password';
+      setPasswordErrors([errorMsg]);
+    }
+  };
+
+  const resetPasswordState = () => {
+    setPasswordErrors([]);
+    setPasswordSuccess(false);
+  };
+
+  const warnings = [
+    showSuccess ? (
+      <Alert key="profile-success" color="green" variant="light">
+        Your profile has been updated successfully.
+      </Alert>
+    ) : null,
+    externalErrors.length > 0 ? (
+      <Alert key="profile-error" color="red" variant="light">
+        {externalErrors[0]}
+      </Alert>
+    ) : null,
+  ].filter(Boolean);
+
   return (
-    <Container size="xs">
-      <Stack>
-        <Stack gap="xs" align="center">
-          <div style={{ color: 'var(--mantine-color-blue-6)' }}>
-            <IconUser size={24} />
-          </div>
-          <h3>Edit Profile</h3>
-          <p
-            style={{
-              color: 'var(--mantine-color-dimmed)',
-              fontSize: 'var(--mantine-font-size-sm)',
-            }}
-          >
-            Update your profile information
-          </p>
-        </Stack>
-
-        {showSuccess && (
-          <Alert color="green" variant="light">
-            Your profile has been updated successfully
-          </Alert>
-        )}
-
-        {externalErrors.length > 0 && (
-          <Alert color="red" variant="light">
-            {externalErrors[0]}
-          </Alert>
-        )}
-
+    <RNGPageContent
+      title="Profile"
+      description="Update your profile information"
+      actions={
+        <RNGModal
+          title="Change Password"
+          size="sm"
+          renderTrigger={({ onClick }) => (
+            <Button
+              variant="light"
+              onClick={() => {
+                resetPasswordState();
+                onClick();
+              }}
+            >
+              Change Password
+            </Button>
+          )}
+        >
+          {(onClose) => (
+            <Stack gap="md">
+              {passwordSuccess ? (
+                <Stack gap="sm">
+                  <Alert color="green" variant="light">
+                    Your password has been updated successfully.
+                  </Alert>
+                  <Group justify="flex-end">
+                    <Button variant="default" onClick={onClose}>
+                      Close
+                    </Button>
+                  </Group>
+                </Stack>
+              ) : (
+                <RNGForm
+                  schema={{
+                    items: [
+                      {
+                        type: 'password',
+                        name: 'currentPassword',
+                        label: 'Current Password',
+                        placeholder: 'Enter your current password',
+                        required: true,
+                      },
+                      {
+                        type: 'password',
+                        name: 'newPassword',
+                        label: 'New Password',
+                        placeholder: 'Enter a strong password',
+                        required: true,
+                        description:
+                          'Minimum 8 characters with uppercase, lowercase, number, and special character',
+                      },
+                    ],
+                  }}
+                  validationSchema={changePasswordSchema}
+                  onSubmit={handlePasswordSubmit}
+                  submitLabel={changePassword.isPending ? 'Changing...' : 'Change Password'}
+                  showReset={false}
+                  externalErrors={passwordErrors}
+                  requireChange={false}
+                />
+              )}
+            </Stack>
+          )}
+        </RNGModal>
+      }
+      warnings={warnings.length > 0 ? warnings : undefined}
+    >
+      <Stack gap="lg" p={0}>
         <RNGForm
           schema={formSchema}
           validationSchema={editProfileSchema}
@@ -146,6 +226,6 @@ export default function ProfilePage() {
           requireChange={false}
         />
       </Stack>
-    </Container>
+    </RNGPageContent>
   );
 }

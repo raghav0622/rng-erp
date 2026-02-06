@@ -15,7 +15,7 @@
 **Policy**: Each Firebase Auth user (`authUid`) links exactly once to one AppUser. Links are irreversible.
 
 **Enforcement**: `assertAuthIdentityNotLinked()` + `assertAuthUidNotLinked()` invariants  
-**Rollback Protection**: If soft-delete fails during linking, disabled user copy is deleted automatically  
+**Rollback Protection**: If hard-delete fails during linking, disabled user copy is deleted automatically  
 **Consequence**: Prevents identity confusion, privilege escalation, and account takeover scenarios
 
 ## Email Verification Authority (Mirrored, Not Authoritative in Firestore)
@@ -28,23 +28,31 @@
 
 **Design Rationale**: Firestore can lag; Firebase Auth is always authoritative. Eventual consistency is acceptable.
 
-## Disabled User Handling (Enforcement in Firestore)
+## Disabled User Handling (Instant Multi-Device Logout)
 
-**Policy**: `isDisabled` flag enforced at Firestore layer  
-**Session Behavior**: Disabled users may retain existing sessions until next auth resolution  
+**Policy**: `isDisabled` flag enforced at Firestore layer with instant session revocation
+**Session Behavior**: Disabled users are logged out across all devices within 5 seconds
 **Auth Resolution**: Explicitly checks for disabled users; rejects session if found  
 **Prevention**: Invariant `assertDisabledUserCannotAcceptInvite()` prevents disabled users from activating
+**Session Revocation**: Firestore session tracking enables instant multi-device logout
 
-**Design Rationale**: Client-side does not have global session revocation. Sessions clear on next auth check or 24-hour timeout.
+**Implementation**:
 
-## Concurrent Sessions (Allowed by Policy)
+- Owner disables user → All Firestore sessions marked `revoked: true`
+- Each device validates session every 5 seconds
+- Revoked session detected → Immediate logout
+- Works across all devices/browsers simultaneously
 
-**Policy**: Multiple concurrent sessions allowed. No global revocation.  
+**Design Rationale**: Firestore-based session tracking provides instant revocation without requiring server-side infrastructure or Admin SDK calls.
+
+## Concurrent Sessions (Multi-Device Support)
+
+**Policy**: Multiple concurrent sessions allowed with instant revocation capability
 **Example**: User can be logged in on desktop and mobile simultaneously  
-**Session Lifetime**: 24-hour local UX timeout (not auth revocation)  
-**Disablement**: User disables account but existing sessions remain valid until next auth resolution
+**Session Lifetime**: 24-hour local UX timeout plus 5-second validation checks
+**Disablement**: User disabled → All sessions marked revoked → All devices logout within 5 seconds
 
-**Design Rationale**: Client-side architecture cannot enforce global revocation. This is an accepted trade-off.
+**Design Rationale**: Firestore session tracking provides multi-device awareness while maintaining client-side architecture simplicity.
 
 ## Invariants (Canonical)
 

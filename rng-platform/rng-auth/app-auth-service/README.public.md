@@ -13,7 +13,7 @@ The public API is `IAppAuthService` as exported by the platform entry point. Int
 - `emailVerified`: Firebase Auth source of truth
 - `lastTransitionError`: invalid transition record (non-fatal)
 - `lastAuthError`: most recent auth resolution failure
-- `sessionExpiresAt`: local UX session timeout (24 hours), **NOT** auth revocation
+- `sessionExpiresAt`: local UX session timeout (24 hours) plus 5-second validation checks
 
 ### Error Fields: lastTransitionError vs lastAuthError
 
@@ -26,15 +26,17 @@ These fields surface different categories of state management issues:
 
 ### sessionExpiresAt: Local UX Timeout (Not Auth Revocation)
 
-`sessionExpiresAt` is a **local, client-side session timeout** for UX hygiene. It is **NOT** global session revocation:
+`sessionExpiresAt` is a **local, client-side session timeout** for UX hygiene with instant revocation capability:
 
 - **Set**: 24 hours after successful authentication
-- **Checked**: During UI interactions and background timers
+- **Checked**: During UI interactions and background timers (every 5 seconds)
 - **On Expiry**: Local session clears from client
+- **Validation**: Checks Firestore for session revocation every 5 seconds
+- **Multi-Device**: Session revocation works across all devices instantly (5-second detection)
 - **Firebase Token**: May remain valid; user can re-authenticate without server-side changes
-- **Design Rationale**: Timeout stale UX sessions while allowing background token refresh
+- **Design Rationale**: Timeout stale UX sessions while enabling instant multi-device logout
 
-This is intentional: Firebase tokens auto-refresh; we add client-side UX timeout as a separate concern.
+This combines local timeout with Firestore-based session tracking for instant revocation when users are disabled.
 
 ## Suspense-Friendly Guarantees
 

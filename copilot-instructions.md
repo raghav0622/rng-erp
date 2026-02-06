@@ -10,7 +10,12 @@ This is a **Next.js 16 (App Router)** ERP frontend app with three architectural 
 
 1. **`rng-forms/`** — Schema-driven form UI engine (Mantine + React Hook Form + Zod). UI-only layer; no data access, no business logic.
 2. **`rng-repository/`** — Frozen v1 client-safe Firestore repository contract. Mechanical data access layer with optimistic locking, soft deletes, retry logic, and diagnostic hooks.
-3. **`rng-platform/rng-auth/`** — Client-side authentication service (`AppAuthService`) integrating Firebase Auth with Firestore-backed AppUser projection. Invariant-driven, race-resilient, resource-safe.
+3. **`rng-platform/rng-auth/`** — Client-side authentication service (`AppAuthService`) integrating Firebase Auth with Firestore-backed AppUser projection. Invariant-driven, race-resilient, resource-safe. Frozen v1.
+
+Supporting modules:
+
+- **`rng-ui/auth-screens/`** — Production authentication screens (SignIn, SignUp, ForgotPassword, OnBoarding, etc.) using hooks + rng-forms. Zero business logic.
+- **`rng-ui/auth/`** — Reusable auth UI components (RequireAuthenticated, RequireRole guards, user menus, avatars, status badges).
 
 **Critical separation of concerns**: Keep business logic and side effects in service layers (`rng-platform/rng-auth/app-auth-service/`, hooks, or future `rng-firebase/`). Forms are pure UI composition. Repository is mechanical CRUD. Auth service enforces ERP-specific invariants.
 
@@ -18,7 +23,9 @@ This is a **Next.js 16 (App Router)** ERP frontend app with three architectural 
 
 - **`rng-forms/`** — Form DSL, UI registry, field components, form runtime. See [rng-forms/RNGForm.tsx](./rng-forms/RNGForm.tsx), [rng-forms/dsl/factory.ts](./rng-forms/dsl/factory.ts), [rng-forms/core/Registry.tsx](./rng-forms/core/Registry.tsx), and [rng-forms/README.md](./rng-forms/README.md).
 - **`rng-repository/`** — Frozen v1 contract. Read [rng-repository/README.md](./rng-repository/README.md) before changing. Public API is immutable; only internal optimizations allowed.
-- **`rng-platform/rng-auth/`** — Client-side auth service + React Query hooks. **UI must use hooks from [app-auth-hooks/](./rng-platform/rng-auth/app-auth-hooks/), never call service directly**. See [app-auth-service/README.md](./rng-platform/rng-auth/app-auth-service/README.md) and [app-auth-service/AUTH_MODEL.md](./rng-platform/rng-auth/app-auth-service/AUTH_MODEL.md) for auth model and guarantees.
+- **`rng-platform/rng-auth/`** — Client-side auth service + React Query hooks. See [app-auth-service/README.md](./rng-platform/rng-auth/app-auth-service/README.md) for service guarantees and [app-auth-service/AUTH_MODEL.md](./rng-platform/rng-auth/app-auth-service/AUTH_MODEL.md) for auth model.
+  - **`app-auth-service/`** — Service layer (frozen v1). Intentionally client-only. Invariants, race detection, rollback logic documented in AUTH_MODEL.md, SESSION_MODEL.md, CLIENT_SIDE_LIMITATIONS.md.
+  - **`app-auth-hooks/`** — React Query hooks layer (frozen v1). **UI must use only hooks from here, never import service directly**. 100% functional coverage with 1:1 semantics. Documentation: [CLIENT_SIDE_LIMITATIONS.md](./rng-platform/rng-auth/app-auth-hooks/CLIENT_SIDE_LIMITATIONS.md). Planned docs referenced in code: FROZEN_V1.md, RETURN_SEMANTICS.md, CACHING_STRATEGY.md, ROLE_ACTIONS.md.
 - **`lib/`** — App-level utilities: [lib/env.ts](./lib/env.ts) (environment schema), [lib/firebase-client.ts](./lib/firebase-client.ts) (Firebase client bootstrap), [lib/logger.ts](./lib/logger.ts) (global logger).
 - **`app/`**, **`rng-ui/`** — Next.js App Router entry points and shared UI patterns (Mantine components, branding, layouts).
 - **`theme/`** — Mantine theme configuration in [theme/index.ts](./theme/index.ts).
@@ -65,7 +72,7 @@ npm run review       # Generate review file from scripts (internal tool)
 ## Environment Configuration
 
 - **Schema**: [lib/env.ts](./lib/env.ts) uses `@t3-oss/env-nextjs` for runtime + client env validation (Zod-based).
-- **Server vars**: `NODE_ENV`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_MAX_AGE_DAYS`.
+- **Server vars**: `NODE_ENV`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_MAX_AGE_DAYS`, `COOKIE_SECRET_CURRENT`, `COOKIE_SECRET_PREVIOUS` (cookie signing secrets; PREVIOUS is optional for rotation).
 - **Client vars**: `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`.
 - **Test environment**: Vitest auto-injects mock Firebase values (defined in [vitest.config.ts](./vitest.config.ts) under `test.env`) for `NEXT_PUBLIC_FIREBASE_*` vars. Server vars are not available in unit tests by default (unless using database/integration tests).
 - **Adding new env vars**: Update [lib/env.ts](./lib/env.ts) schema and sync any test-needed vars with [vitest.config.ts](./vitest.config.ts) `test.env` object.
@@ -89,83 +96,29 @@ npm run review       # Generate review file from scripts (internal tool)
 ## When Working with Auth Service
 
 - **USE HOOKS, NOT SERVICE DIRECTLY**: UI components must use React Query hooks from [app-auth-hooks/](./rng-platform/rng-auth/app-auth-hooks/) instead of calling `appAuthService` directly. The service is for internal use only.
-- **Read model first**: [rng-platform/rng-auth/app-auth-service/AUTH_MODEL.md](./rng-platform/rng-auth/app-auth-service/AUTH_MODEL.md) — canonical auth model.
+- **Read model first**: [rng-platform/rng-auth/app-auth-service/AUTH_MODEL.md](./rng-platform/rng-auth/app-auth-service/AUTH_MODEL.md) — canonical auth model. Also see SESSION_MODEL.md for session lifecycle and CLIENT_SIDE_LIMITATIONS.md for architectural constraints.
 - **Service contract**: [rng-platform/rng-auth/app-auth-service/app-auth.contracts.ts](./rng-platform/rng-auth/app-auth-service/app-auth.contracts.ts) defines `IAppAuthService`.
 - **Hooks are frozen v1**: Every public service method has exactly one corresponding hook with identical semantics. Do not add logic to hooks; they delegate only.
-- **Hook categories**: Session hooks (`useAuthSession`, `useRequireAuth`), query hooks (`useCurrentUser`, `useListUsers`, etc.), mutation hooks (`useSignIn`, `useInviteUser`, etc.).
-- **Error types**: Custom error classes in [rng-platform/rng-auth/app-auth-service/app-auth.errors.ts](./rng-platform/rng-auth/app-auth-service/app-auth.errors.ts). Map Firebase errors with `mapFirebaseAuthError`.
-- **Invariants**: User invariants in [rng-platform/rng-auth/app-auth-service/internal-app-user-service/app-user.invariants.ts](./rng-platform/rng-auth/app-auth-service/internal-app-user-service/app-user.invariants.ts).
-- **Session state**: Observable via `useAuthSession()` (not React Query). Use `useRequireAuth()` for auth guards that throw.
-- **Query keys**: Use `authQueryKeys` from [app-auth-hooks/keys.ts](./rng-platform/rng-auth/app-auth-hooks/keys.ts) for cache invalidation.
-
-## Auth Hook Patterns
-
-### Session Access
-
-```tsx
-import { useAuthSession, useRequireAuth } from 'rng-platform/rng-auth';
-
-// Reactive session state (useSyncExternalStore)
-function UserAvatar() {
-  const session = useAuthSession();
-  if (session.state === 'authenticated' && session.user) {
-    return <Avatar name={session.user.name} />;
-  }
-  return <LoginButton />;
-}
-
-// Auth guard (throws NotAuthenticatedError)
-function ProtectedPage() {
-  const user = useRequireAuth(); // Throws if not authenticated
-  return <Dashboard user={user} />;
-}
-```
-
-### Queries (Suspense)
-
-```tsx
-import { useCurrentUser, useListUsers } from 'rng-platform/rng-auth';
-
-function ProfilePage() {
-  const { data: user } = useCurrentUser(); // useSuspenseQuery
-  const { data: users } = useListUsers();
-  return <UserProfile user={user} allUsers={users} />;
-}
-```
-
-### Mutations
-
-```tsx
-import { useSignIn, useInviteUser } from 'rng-platform/rng-auth';
-
-function LoginForm() {
-  const signIn = useSignIn({
-    onSuccess: () => navigate('/dashboard'),
-    onError: (error) => showNotification(error.message),
-  });
-
-  return <form onSubmit={(data) => signIn.mutate(data)}>...</form>;
-}
-
-function InviteUserButton() {
-  const inviteUser = useInviteUser();
-  return <Button onClick={() => inviteUser.mutate({ email, role: 'employee' })} />;
-}
-```
+- **Hook categories**: Session (`useAuthSession`, `useRequireAuthenticated`), queries (`useCurrentUser`, `useListUsers`, etc.), mutations (`useSignIn`, `useInviteUser`, etc.), bootstrap queries (`useIsOwnerBootstrapped`, etc.), role facades (`useAuthActions`, `useOwnerActions`, etc.).
+- **Error types**: Custom error classes in [app-auth.errors.ts](./rng-platform/rng-auth/app-auth-service/app-auth.errors.ts). Use `getAuthErrorMessage()` to map errors to user-friendly messages. Error codes: `'auth/invalid-credentials'`, `'auth/email-already-in-use'`, `'auth/too-many-requests'`, `'auth/user-disabled'`, `'auth/not-authenticated'`, `'auth/infrastructure-error'`, etc.
+- **Invariants**: User invariants in internal-app-user-service (email normalization, invite state, disabled flag enforcement, etc.). See AUTH_MODEL.md.
+- **Session state**: Observable via `useAuthSession()` (uses `useSyncExternalStore`). Use `useRequireAuthenticated()` for auth guards that throw `NotAuthenticatedError`.
+- **Null semantics**: `null` is NOT an error. Null means "not authenticated" (normal state). Use Suspense for loading, error boundaries for exceptions only. See [CLIENT_SIDE_LIMITATIONS.md](./rng-platform/rng-auth/app-auth-hooks/CLIENT_SIDE_LIMITATIONS.md).
+- **Query keys**: Use `authQueryKeys` from [keys.ts](./rng-platform/rng-auth/app-auth-hooks/keys.ts) for cache invalidation. Hierarchical: `authQueryKeys.session()`, `authQueryKeys.users()`, `authQueryKeys.userDetail(id)`, etc.
 
 ## When Working with Auth Hooks
 
-- **Hooks are the ONLY bridge to app-auth-service**: UI must never import `appAuthService` directly. All auth access goes through [rng-platform/rng-auth/app-auth-hooks/](./rng-platform/rng-auth/app-auth-hooks/).
-- **Session hook**: `useAuthSession()` uses `useSyncExternalStore` to mirror `appAuthService.onAuthStateChanged()`. Safe for Suspense. Returns `AuthSession` directly (no projection).
-- **Protected routes**: `useRequireAuthenticated()` throws `NotAuthenticatedError` if not authenticated. Use in route guards and layouts.
-- **Null vs error semantics**: Read [RETURN_SEMANTICS.md](./rng-platform/rng-auth/app-auth-hooks/RETURN_SEMANTICS.md) to understand why null is NOT an error. Always treat null as "not authenticated" state, not as an exception. Use Suspense for loading, error boundaries for actual errors only.
-- **Read hooks use `useSuspenseQuery`**: All user queries (`useCurrentUser`, `useGetUserById`, `useListUsers`, `useIsOwnerBootstrapped`, etc.) suspend until data loads. Throws service errors directly—no remapping.
-- **Write hooks use `useMutation`**: All mutations (`useSignIn`, `useInviteUser`, `useUpdateUserRole`, etc.) invalidate targeted query keys on success. Auth lifecycle mutations (signIn/signOut) invalidate all auth queries. Profile mutations invalidate only affected user queries.
-- **Zod schemas**: Every hook with user input exports a Zod schema that EXACTLY matches the service method input shape. Use these in forms: `ownerSignUpSchema`, `inviteUserSchema`, `updateUserRoleSchema`, etc. No UI-only fields, no defaults.
-- **Photo handling**: Hooks accept `File` or base64 string and pass directly to service. Photo lifecycle is fully owned by `app-auth-service`.
-- **Cache keys**: Use `authQueryKeys` from [app-auth-hooks/keys.ts](./rng-platform/rng-auth/app-auth-hooks/keys.ts) for cache management. Hierarchical structure: `authQueryKeys.users()`, `authQueryKeys.userDetail(id)`, `authQueryKeys.session()`, etc.
-- **Role-grouped facades** (`useAuthActions`, `useOwnerActions`, `useManagerActions`, `useEmployeeActions`, `useClientActions`): Pure re-exports for discoverability. No logic added; authorization stays in service.
-- **Error handling**: Hooks surface `AppAuthError` subclasses directly via React Query `useErrorHandler()` or error boundaries. No translation. Error types: `InvalidCredentialsError`, `NotAuthenticatedError`, `TooManyRequestsError`, `OwnerBootstrapRaceDetectedError`, etc. (Code Examples)
+- **Hooks are the ONLY bridge to app-auth-service**: UI must never import service layer directly. All auth access goes through [app-auth-hooks/](./rng-platform/rng-auth/app-auth-hooks/).
+- **Session hook**: `useAuthSession()` uses `useSyncExternalStore` to subscribe to auth state changes. Never suspends (safe for layouts). Returns `AuthSession` with state ('authenticated' | 'anonymous-loading' | 'fully-loaded') and user or null.
+- **Protected routes**: `useRequireAuthenticated()` throws `NotAuthenticatedError` if not authenticated. Use in layout guards for protected sections.
+- **Null vs error semantics**: Null is NOT an error—it means "not authenticated" (normal state). Use Suspense for loading states, error boundaries for exceptions only. See [CLIENT_SIDE_LIMITATIONS.md](./rng-platform/rng-auth/app-auth-hooks/CLIENT_SIDE_LIMITATIONS.md) for architectural constraints.
+- **Read hooks use `useSuspenseQuery`**: All user queries (`useCurrentUser`, `useGetUserById`, `useListUsers`, `useIsOwnerBootstrapped`, etc.) suspend until data loads. Throw service errors directly—no translation.
+- **Write hooks use `useMutation`**: All mutations (`useSignIn`, `useInviteUser`, `useUpdateUserRole`, etc.) auto-invalidate related query keys on success. Auth lifecycle mutations (signIn/signOut/ownerSignUp) invalidate all queries. Profile mutations invalidate only affected user queries.
+- **Zod schemas**: Every hook with user input exports a Zod schema matching the service method input shape exactly. Use in forms: `signInSchema`, `ownerSignUpSchema`, `inviteUserSchema`, `updateUserRoleSchema`, etc. No UI-only fields; no defaults.
+- **Photo handling**: Hooks accept `File` or base64 string and pass directly to service. Photo lifecycle fully owned by service.
+- **Cache keys**: Use `authQueryKeys` from [keys.ts](./rng-platform/rng-auth/app-auth-hooks/keys.ts). Hierarchical: `authQueryKeys.session()`, `authQueryKeys.users()`, `authQueryKeys.userDetail(id)`, `authQueryKeys.bootstrap.isOwnerBootstrapped()`, etc.
+- **Role-grouped facades** (`useAuthActions`, `useOwnerActions`, `useManagerActions`, `useEmployeeActions`, `useClientActions`): Pure re-exports for discoverability. Zero additional logic. Authorization stays in service layer.
+- **Error handling**: Hooks surface `AppAuthError` and subclasses directly via React Query. Use error boundaries or `useErrorHandler()` to catch. Codes: `'auth/invalid-credentials'`, `'auth/email-already-in-use'`, `'auth/too-many-requests'`, `'auth/user-disabled'`, `'auth/owner-already-exists'`, `'auth/owner-bootstrap-race'` (recoverable), `'auth/infrastructure-error'` (transient), `'auth/not-authenticated'`, `'auth/not-authorized'`. Use `getAuthErrorMessage()` and `normalizeErrorMessage()` to translate for UI.
 
 ### Session Access
 
@@ -369,41 +322,40 @@ globalLogger.error('[Service] Operation failed', { cause });
 
 - `app/(authenticated)/` — Protected routes (dashboard, profile, admin)
 - `app/(unauthenticated)/` — Public routes (signin, signup, forgot-password)
-- **Auth Flow**: [AuthAppShell](./rng-platform/rng-auth/app-auth-components/shell/) manages route-based redirects
-- **Loading State**: `app/auth/loading/page.tsx` shown during session checks
-- **Guards**: [RequireAuthenticated](./rng-platform/rng-auth/app-auth-components/guards/), [RequireRole](./rng-platform/rng-auth/app-auth-components/guards/) for route protection
+- **Auth Guards**: [RequireAuthenticated](./rng-ui/auth/_RequireAuthenticated.tsx), [RequireRole](./rng-ui/auth/_RequireRole.tsx) for route protection
+- **Auth Screens**: Located in [rng-ui/auth-screens/](./rng-ui/auth-screens/) (SignInScreen, OnboardingScreen, SignUpScreen, ForgotPasswordScreen, AuthScreen wrapper)
 
-**Auth Screens** (located in [app-auth-components/screens/](./rng-platform/rng-auth/app-auth-components/screens/)):
+## When Working with Auth Screens & Components (UI Layer)
 
-- **SignInScreen**: Uses `useSignIn` hook + `signInSchema` (Zod)
-- **OwnerBootstrapScreen**: One-time owner setup via `useOwnerSignUp` hook
-- **SignUpWithInviteScreen**: Invited users sign up with existing email (no tokens)
-- **ForgotPasswordScreen** / **ResetPasswordScreen**: Self-service password reset
-- **All screens use rng-forms** for composition; schemas are in `app-auth-hooks`
-
-## When Working with Auth Components (UI Layer)
-
-The `app-auth-components` module provides production-ready authentication screens and guards. All components use hooks (never direct service access) and `rng-forms` for composition.
+Auth screens in [rng-ui/auth-screens/](./rng-ui/auth-screens/) and guards/components in [rng-ui/auth/](./rng-ui/auth/) provide production-ready authentication UI. All use hooks (never direct service access) and `rng-forms` for composition.
 
 **Key Principles**:
 
 - **Zero business logic in components**: All logic lives in `app-auth-service` and `app-auth-hooks`
-- **100% hook-based screens**: Never call service methods directly
-- **One layout pattern**: Use `AuthAppShell` at root to manage route-level authentication state
-- **Consistent error handling**: All auth errors are surfaced via `AppAuthError` subclasses to error boundaries
+- **100% hook-based screens**: Never import service directly; use exported hooks only
+- **Error messaging**: Use `getAuthErrorMessage()` and `normalizeErrorMessage()` to map error codes to user-friendly messages
+- **Consistent error handling**: Surface auth errors via error boundaries; never expose raw Firebase messages
 
-**Authentication Flows**:
+**Available Screens** ([rng-ui/auth-screens/](./rng-ui/auth-screens/)):
 
-1. **Owner Bootstrap** (`OwnerBootstrapScreen`): First-time setup, creates owner directly in Firebase Auth + Firestore
-2. **Sign In** (`SignInScreen`): Email/password authentication with session persistence
-3. **Sign Up With Invite** (`SignUpWithInviteScreen`): Invited users register using their invited email (no tokens—Firestore AppUser doc is source of truth)
-4. **Password Reset**: `ForgotPasswordScreen` requests reset email, `ResetPasswordScreen` confirms reset code
-5. **Profile/Role Management**: Owner-only screens for user management, invites, and role assignments
+1. **SignInScreen**: Email/password authentication with session persistence
+2. **OnboardingScreen**: First-time owner setup (creates owner in Firebase Auth + Firestore AppUser)
+3. **SignUpScreen**: General sign-up (may be invite or open signup based on config)
+4. **ForgotPasswordScreen**: Requests password reset email
+5. **AuthScreen**: Base wrapper providing consistent styling, loading state, title/description
+
+**Available Guards & Components** ([rng-ui/auth/](./rng-ui/auth/)):
+
+- `RequireAuthenticated`: Guard that throws `NotAuthenticatedError` if not authenticated
+- `RequireRole`: Guard restricting access to specific roles
+- `RNGUserMenu`: User profile dropdown menu
+- `UserAvatar`, `RoleBadge`, `UserStatusBadge`: Display components
+- `ChangePasswordScreen`, `EmailVerificationScreen`, `EmailVerificationBadge`: User profile utilities
 
 **Route Protection Pattern**:
 
 ```tsx
-// Wrap authenticated routes with RequireAuthenticated guard
+// Wrap authenticated sections with guard
 <RequireAuthenticated>
   <Dashboard />
 </RequireAuthenticated>
@@ -416,96 +368,64 @@ The `app-auth-components` module provides production-ready authentication screen
 
 **Important Design Decisions**:
 
-- **No invite tokens**: Invited users simply sign up with their invited email. System verifies email matches an AppUser with `inviteStatus='invited'`
-- **Split signup flows**: Owner bootstrap is separate from invite signup to ensure only one owner exists
-- **Email as source of truth**: Firebase Auth email is authoritative for verification state; Firestore AppUser mirrors it
-- **Disabled user enforcement**: Disabled users cannot accept invites; disabled flag is checked during auth resolution
-
-**Screens Location**: [rng-platform/rng-auth/app-auth-components/screens/](./rng-platform/rng-auth/app-auth-components/screens/)
+- **No invite tokens**: Invited users sign up with their invited email. System verifies email matches an AppUser with matching invite status.
+- **Email verification**: Firebase Auth email is authoritative; Firestore AppUser mirrors state.
+- **Disabled enforcement**: Disabled users cannot sign in or accept invites; disabled flag checked during auth resolution.
+- **Split flows**: Different signup screens for owner bootstrap vs. invite signup to ensure single owner.
 
 ## Error Handling Architecture
 
 **Three-layer error handling hierarchy**:
 
-1. **Service Layer** ([app-auth.errors.ts](./rng-platform/rng-auth/app-auth-service/app-auth.errors.ts)): Typed `AppAuthError` subclasses with discriminated codes. `mapFirebaseAuthError()` normalizes Firebase errors to semantic types.
-2. **Hook Layer**: React Query propagates service errors directly. Use `useErrorHandler()` or error boundaries to catch.3. **UI Layer** ([AuthErrorBoundary.tsx](./rng-platform/rng-auth/app-auth-components/boundaries/AuthErrorBoundary.tsx)): Translates codes to user-friendly messages. Never expose raw Firebase error messages.
+1. **Service Layer** ([app-auth.errors.ts](./rng-platform/rng-auth/app-auth-service/app-auth.errors.ts)): Typed `AppAuthError` subclasses with discriminated codes. Internal error mapping logic converts Firebase errors to semantic types.
+2. **Hook Layer**: React Query propagates service errors directly. Use error boundaries or `useErrorHandler()` to catch.
+3. **UI Layer**: Use `getAuthErrorMessage()` (exported from app-auth-hooks) to map error codes to user-friendly messages. Never expose raw Firebase messages.
 
-**Common Error Codes** (use in error handlers, not catch blocks):
+**Common Error Codes** (handle these in UI error boundaries/forms):
 
 - `'auth/invalid-credentials'` — Wrong email/password
 - `'auth/email-already-in-use'` — Signup collision
-- `'auth/too-many-requests'` — Throttled (Firebase protection)
+- `'auth/too-many-requests'` — Throttled by Firebase
 - `'auth/user-disabled'` — User disabled by admin
 - `'auth/owner-already-exists'` — Multiple owners not allowed
-- `'auth/owner-bootstrap-race'` — Concurrent setup, auto-recovered
+- `'auth/owner-bootstrap-race'` — Concurrent setup detected; retry
 - `'auth/infrastructure-error'` — Network/Firestore failure (transient)
-- `'auth/not-authenticated'` — Missing auth guard
+- `'auth/not-authenticated'` — Missing auth guard (should not reach UI)
 - `'auth/not-authorized'` — Role/permission violation
 
-**Pattern: Error Display in Forms**:
+**Helper Functions** (from app-auth-hooks):
 
-```tsx
-import { useSignIn, signInSchema } from 'rng-platform/rng-auth';
+- `getAuthErrorMessage(error)` — Maps AppAuthError to message object with code/details
+- `normalizeErrorMessage(messages)` — Converts message object to string array for UI display
 
-function LoginForm() {
-  const [externalErrors, setExternalErrors] = useState<string[]>([]);
-  const signIn = useSignIn();
+## Future Module: `rng-firebase/` (Planned)
 
-  const handleSubmit = async (data: typeof signInSchema) => {
-    setExternalErrors([]);
-    try {
-      await signIn.mutateAsync(data);
-    } catch (error) {
-      const appError = error as AppAuthError;
-      setExternalErrors([appError.message]); // Surface to user
-    }
-  };
+Future infrastructure for Firebase-specific adapters and utilities. Does not yet exist, but vitest is pre-configured to run `rng-firebase/**/*.spec.ts` tests when the module is created.
 
-  return (
-    <RNGForm validationSchema={signInSchema} onSubmit={handleSubmit}>
-      {externalErrors.length > 0 && (
-        <Alert icon={<IconAlertCircle />} color="red">
-          {externalErrors[0]}
-        </Alert>
-      )}
-    </RNGForm>
-  );
-}
-```
+**When creating this module**:
 
-## Future Module: `rng-firebase/` (Under Development)
-
-The codebase is structured to support a future `rng-firebase/` module for Firebase-specific adapters and utilities. Vitest is already configured to support `rng-firebase/**/*.spec.ts` tests. When adding this module:
-
-- **Adapters**: Error mapping (`adapter-error-mapping.ts`), other Firebase SDK normalizations
-- **Location**: Create `rng-firebase/adapters/` directory with individual adapter files and `.spec.ts` tests
+- **Adapters**: Error mapping, other Firebase SDK normalizations
+- **Location**: `rng-firebase/adapters/` with individual `.spec.ts` test files per adapter
 - **Error Adapters**: Convert Firebase native errors (AuthError, FirestoreError, etc.) to application-level error types
 - **Pattern**: `export function mapXyzError(error: unknown): AppXyzError { ... }`
-- **Test pattern**: Import adapter, test Firebase error codes → app error codes, verify cause chain preservation
-- **Run tests**: `npm run test` (covers all `rng-firebase/**/*.spec.ts` files via vitest)
+- **Testing**: Mock Firebase errors, verify code → error type mapping, verify cause chain preservation
+- **Run**: `npm run test` automatically picks up all `rng-firebase/**/*.spec.ts` files
 
-Example stub for when module is created:
-
-```typescript
-// rng-firebase/adapters/adapter-error-mapping.ts
-import { AppAuthError, InvalidCredentialsError, ... } from 'rng-platform/rng-auth';
-import { AuthError } from 'firebase/auth';
-
-export function mapFirebaseAuthError(error: unknown): AppAuthError {
-  // Delegates to existing mapFirebaseAuthError; this adapter centralizes logic
-  // See: rng-platform/rng-auth/app-auth-service/app-auth.errors.ts
-}
-```
+**Current Status**: Service layer already handles Firebase error mapping (see [app-auth.errors.ts](./rng-platform/rng-auth/app-auth-service/app-auth.errors.ts)). Future module will centralize and expand adapters as more Firebase APIs are used.
 
 ## Common Pitfalls
 
 - **Do not use raw Firebase SDK in UI components**: Use service layers or repository abstractions.
 - **Do not add business logic to form field components**: Keep them pure UI. Move logic to service hooks or validation schemas.
-- **Do not mutate `rng-repository` public API**: It's frozen. Extend via hooks/config, not by changing the class.
+- **Do not mutate `rng-repository` public API**: It's frozen. Extend via hooks/config, not by changing the class signature or behavior.
+- **Do not mutate `app-auth-service` public API**: It's frozen v1. Internal optimizations only; no new methods or signature changes.
 - **Do not forget to lazy-load new form components**: Add to [rng-forms/core/Registry.tsx](./rng-forms/core/Registry.tsx) with `React.lazy`.
 - **Do not skip `'use client'` directive**: All client-side React hooks require it in App Router.
-- **Do not use `&&` in terminal commands**: PowerShell uses `;` for command chaining (see [vitest.config.ts](./vitest.config.ts) notes).
+- **Do not use `&&` in terminal commands on Windows/PowerShell**: Use `;` for command chaining. Example: `npm run build; npm run test`.
 - **Do not call auth service directly from UI**: Always use hooks from [app-auth-hooks/](./rng-platform/rng-auth/app-auth-hooks/). Screens are 100% hook-based.
+- **Do not treat null as an error in auth queries**: Null means "not authenticated" (normal state). Use Suspense for loading, error boundaries for exceptions.
+- **Do not bypass email normalization**: Always use `normalizeEmail()` before comparison or storage (enforced in service layer).
+- **Do not add new public hooks without corresponding service method**: Hooks are frozen v1 with 1:1 semantics to service. No additional logic in hooks.
 
 ## PR & Patch Guidance for AI Agents
 

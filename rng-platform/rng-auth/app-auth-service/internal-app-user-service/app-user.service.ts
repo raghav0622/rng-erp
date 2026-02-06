@@ -1,6 +1,7 @@
 import { clientDb } from '@/lib';
 import { globalLogger } from '@/lib/logger';
 import { AbstractClientFirestoreRepository } from '@/rng-repository';
+import { deleteDoc, doc } from 'firebase/firestore';
 import type {
   AppUser,
   CreateInvitedUser,
@@ -53,6 +54,20 @@ class AppUserRepository extends AbstractClientFirestoreRepository<AppUser> {
       softDelete: true,
       idStrategy: 'client',
     });
+  }
+
+  /**
+   * Hard delete a user document (bypasses soft delete configuration)
+   * Used for cleanup of temporary/transitional records like invited users after signup
+   */
+  async hardDelete(id: string): Promise<void> {
+    // Clear query cache on write
+    this.queryCache.clear();
+    // Clear DataLoader cache
+    this.dataLoader.clear(id);
+
+    const docRef = doc(this.collectionRef, id);
+    await deleteDoc(docRef);
   }
 }
 const appUserRepo = new AppUserRepository();
@@ -383,14 +398,20 @@ export class AppUserService implements IAppUserService {
         );
       }
 
-      const softDeleteResult = await this.appUserRepo.update(userId, { deletedAt: new Date() });
-      if (!softDeleteResult.deletedAt) {
-        // Rollback: Delete the newly created disabled user on soft-delete failure
+      // Hard delete the old invited user record (no longer needed after successful linking)
+      try {
+        await this.appUserRepo.hardDelete(userId);
+        globalLogger.info('[AppUserService] Hard deleted old invited user record after linking', {
+          userId,
+          authUid,
+        });
+      } catch (deleteErr) {
+        // Rollback: Delete the newly created disabled user on hard-delete failure
         // This prevents orphaned disabled users and allows safe retry
         try {
           await this.appUserRepo.delete(authUid);
           globalLogger.warn(
-            '[AppUserService] Rolled back disabled user creation after soft-delete failure',
+            '[AppUserService] Rolled back disabled user creation after hard-delete failure',
             {
               authUid,
               originalUserId: userId,
@@ -404,8 +425,8 @@ export class AppUserService implements IAppUserService {
           });
         }
         throw new AppUserInvariantViolation(
-          'Failed to soft-delete old invite record after linking auth identity',
-          { userId, authUid },
+          'Failed to hard-delete old invite record after linking auth identity',
+          { userId, authUid, cause: deleteErr },
         );
       }
 
@@ -418,9 +439,10 @@ export class AppUserService implements IAppUserService {
           },
         );
       }
-      const verifyOld = await this.appUserRepo.getById(userId, { includeDeleted: false });
+      // Verify old record is hard deleted
+      const verifyOld = await this.appUserRepo.getById(userId, { includeDeleted: true });
       if (verifyOld) {
-        throw new AppUserInvariantViolation('Old invite record still active after soft delete', {
+        throw new AppUserInvariantViolation('Old invite record still exists after hard delete', {
           userId,
         });
       }
@@ -478,13 +500,18 @@ export class AppUserService implements IAppUserService {
   }
   async deleteUser(data: DeleteAppUser): Promise<void> {
     const user = await this.appUserRepo.getById(data.userId);
-    assertUserExists(user);
+    if (!user) {
+      globalLogger.info('[AppUserService] deleteUser no-op (user not found)', {
+        userId: data.userId,
+      });
+      return;
+    }
     assertOwnerNotDeleted(user!);
 
     // If user is unregistered (invited but never signed up), hard delete the Firestore record
     const isUnregistered = user!.inviteStatus === 'invited' && !user!.isRegisteredOnERP;
     if (isUnregistered) {
-      await this.appUserRepo.hardDelete(data.userId);
+      await this.appUserRepo.delete(data.userId);
     } else {
       // For registered users, soft delete only (reversible)
       await this.appUserRepo.delete(data.userId);

@@ -70,7 +70,7 @@
 ┌─────────────────────────────────────────────┐
 │ linkAuthIdentity() - Rollback Protected     │
 │ Step 1: Create disabled copy with authUid  │
-│ Step 2: Soft-delete original invite        │
+│ Step 2: Hard-delete original invite        │
 │ Step 3: If Step 2 fails, ROLLBACK:         │
 │         Delete newly created disabled user │
 └──────────────┬──────────────────────────────┘
@@ -105,7 +105,7 @@ inviteStatus
 ┌──────────────────────────────────────────────┐
 │ linkAuthIdentity(userId, authUid)            │
 │ (Convert invite to authenticated user)       │
-│ (Includes rollback on soft-delete failure)   │
+│ (Includes rollback on hard-delete failure)   │
 └────────────────┬─────────────────────────────┘
                  |
                  v
@@ -121,7 +121,7 @@ inviteStatus
                  v
         ┌────────────────┐
         │ STEP 2         │
-        │ Soft-Delete    │
+        │ Hard-Delete    │
         │ Original (id)  │
         └────────┬───────┘
                  |

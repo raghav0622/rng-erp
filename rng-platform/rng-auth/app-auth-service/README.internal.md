@@ -12,7 +12,7 @@ Internal methods provide operational tools for client-side recovery. These are f
 
 **Prevention**: Rollback logic prevents orphaned disabled users during auth identity linking.
 
-**How**: If soft-delete fails after disabled user is created, rollback automatically deletes the disabled copy. No orphans remain.
+**How**: If hard-delete fails after disabled user is created, rollback automatically deletes the disabled copy. No orphans remain.
 
 **Detection & Cleanup**: Owner APIs identify and remove any orphaned auth users (network failures between Firebase and Firestore).
 
@@ -34,7 +34,7 @@ Returns all orphaned auth users (auth exists, Firestore AppUser missing).
 
 #### `cleanupOrphanedLinkedUser(userId: string): Promise<void>`
 
-Soft-deletes an orphaned user record.
+Hard-deletes an orphaned user record.
 
 **Purpose**: Manual cleanup of identified orphans  
 **Protections**:

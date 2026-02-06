@@ -173,42 +173,42 @@ Tab 2: EmailAlreadyInUseError (Firebase Auth prevents duplicate)
 
 **See**: [app-auth-service/app-user.invariants.ts](../app-auth-service/internal-app-user-service/app-user.invariants.ts) for email checks
 
-### 6. Disabled Users Retain Sessions
+### 6. ~~Disabled Users Retain Sessions~~ ✅ FIXED
 
-**What it means**:
+**Status**: ✅ RESOLVED via Firestore session tracking
 
-- Owner disables a user
-- User's existing browser session remains valid
-- Session only ends on next auth resolution or 24-hour timeout
+**What was fixed**:
 
-**Consequence**:
+- Previously: Sessions remained active for up to 24 hours after disablement
+- Now: Instant multi-device logout via Firestore session tracking
 
-- Disabled user can continue working for ~24 hours
-- Global session revocation not supported
-- No "immediate kickoff" capability
-
-**Example**:
+**How it works**:
 
 ```
 Owner disables alice@example.com
   ↓
-Alice's browser tab remains authenticated (old session valid)
+Firestore sessions collection updated (all sessions marked revoked)
   ↓
-Alice can still use the app for up to 24 hours
+Alice's browser checks session validity (every 5 seconds)
   ↓
-After 24h or page refresh: auth resolution detects disabled status
+Session revocation detected → Instant logout
   ↓
-Session revoked, user logged out
+All devices logged out within 5 seconds
 ```
 
-**Why this is acceptable**:
+**Implementation**:
 
-- Private ERP (trusted internal users)
-- Disablement is rare (mainly offboarding)
-- 24-hour grace period is acceptable
-- Client-side session model cannot revoke globally
+- Sessions stored in Firestore with userId, expiresAt, revoked flag
+- 30-second heartbeat keeps sessions alive
+- Background validation every 5 seconds checks for revocation
+- Owner disables user → API marks all sessions as revoked
+- Client detects revocation → Forces immediate logout
 
-**See**: [app-auth-service/AUTH_MODEL.md](../app-auth-service/AUTH_MODEL.md) for session semantics
+**See**:
+
+- [session.repository.ts](../app-auth-service/session.repository.ts) - Session CRUD operations
+- [session-tracking.types.ts](../app-auth-service/session-tracking.types.ts) - UserSession interface
+- `/api/auth/revoke-user-sessions` - Server endpoint for session revocation
 
 ### 7. No Multi-Tab Support
 
@@ -298,7 +298,6 @@ Adding server enforcement would require:
 
 ## What's NOT Supported
 
-❌ **No global session revocation**: Disabled users retain sessions until refresh  
 ❌ **No cross-tab sync**: Each tab is independent  
 ❌ **No external provisioning**: No API to create users programmatically  
 ❌ **No distributed locks**: Email uniqueness not atomic  
@@ -313,6 +312,7 @@ Adding server enforcement would require:
 ✅ **Audit trails**: All actions logged  
 ✅ **Manual recovery**: Owner can fix inconsistencies  
 ✅ **Single-tenant deployment**: Entire app runs on one user's device
+✅ **Instant multi-device logout**: Firestore session tracking with 5-second validation
 
 ## Maintenance & Recovery
 
@@ -327,14 +327,15 @@ orphans.forEach((orphan) => {
 });
 ```
 
-### Disabled Users Still Logged In
+### Instant Logout for Disabled Users
 
-Force refresh to trigger auth resolution:
+When owner disables a user, all their sessions are automatically revoked:
 
 ```tsx
-// User hits F5 or closes/reopens browser tab
-// Auth resolution detects disabled status
-// Session revoked
+// Owner disables user → All Firestore sessions marked as revoked
+// Each device checks session validity every 5 seconds
+// Disabled user logged out across all devices within 5 seconds
+// No manual intervention required
 ```
 
 ### Email Conflicts

@@ -54,32 +54,43 @@ Records and surfaces invalid state transitions without throwing.
 - Old session state preserved
 - Next valid transition clears field
 
-## sessionExpiresAt (Local UX Timeout - Not Revocation)
+## sessionExpiresAt (Local UX Timeout)
 
-**Policy**: `sessionExpiresAt` is a **local, client-side UX timeout**, not Firebase Auth revocation.
+**Policy**: `sessionExpiresAt` is a **local, client-side UX timeout** for stale sessions.
 
 ### Mechanism
 
 - **Set**: 24 hours after successful authentication
 - **Checked**:
-  - Background timer every 5 seconds (proactive logout)
+  - Background timer every 5 seconds (proactive logout + session validation)
   - `getSessionSnapshot()` on every UI render (defensive check)
   - `requireAuthenticated()` on API guards
 - **On Expiry**: Local session clears from client
 - **Firebase Token**: May remain valid; user can re-auth on page reload
 - **By Design**: Timeout stale UX sessions while allowing background token refresh
 
+### Session Validation (Multi-Device Instant Logout)
+
+**Implementation**: Firestore-based session tracking enables instant multi-device logout
+
+- **Session Tracking**: Each session stored in Firestore `sessions` collection
+- **Heartbeat**: 30-second interval updates `lastSeenAt` timestamp
+- **Validation**: Every 5 seconds checks if session has been revoked
+- **Revocation**: Owner disables user → All sessions marked `revoked: true`
+- **Detection**: Client detects revocation within 5 seconds → Forces immediate logout
+- **Multi-Device**: Works across all devices/browsers simultaneously
+
 ### Comparison Table
 
-| Aspect    | sessionExpiresAt | Firebase Token      | isDisabled                 |
-| --------- | ---------------- | ------------------- | -------------------------- |
-| Authority | AppAuthService   | Firebase SDK        | Firestore                  |
-| Scope     | Local UX         | Auth API            | User record                |
-| Behavior  | 24-hour timeout  | 1-hour auto-refresh | Checked at auth resolution |
+| Aspect    | sessionExpiresAt | Firebase Token      | isDisabled                 | Session Revoked           |
+| --------- | ---------------- | ------------------- | -------------------------- | ------------------------- |
+| Authority | AppAuthService   | Firebase SDK        | Firestore                  | Firestore sessions        |
+| Scope     | Local UX         | Auth API            | User record                | Multi-device              |
+| Behavior  | 24-hour timeout  | 1-hour auto-refresh | Checked at auth resolution | 5-second validation check |
 
 ### Design Rationale
 
-Firebase tokens refresh automatically (short-lived). Client-side UX timeout is a separate concern for stale sessions and security-sensitive flows.
+Firebase tokens refresh automatically (short-lived). Client-side UX timeout is a separate concern for stale sessions and security-sensitive flows. Firestore session tracking adds instant revocation capability without requiring server-side infrastructure.
 
 ## Concurrent Sessions
 
@@ -87,7 +98,7 @@ Multiple concurrent sessions allowed. Each device/browser maintains independent 
 
 **Example**: User logged in on desktop and mobile simultaneously with independent expiry timers
 
-**No Global Revocation**: Disabling user does not immediately revoke all sessions; takes effect on next auth resolution or 24-hour timeout.
+**Session Revocation**: Disabling a user marks all Firestore sessions as revoked. Each device detects revocation within 5 seconds and forces immediate logout (instant multi-device logout).
 
 ## State Machine Safety
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { appAuthService } from './internal/authService';
 import { authQueryKeys } from './keys';
@@ -30,6 +31,7 @@ export function useUpdateOwnerProfile() {
     onSuccess: (user) => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.currentUser() });
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -46,7 +48,7 @@ export function useUpdateUserProfile() {
       appAuthService.updateUserProfile(input.userId, input.data),
     onSuccess: (user) => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -70,7 +72,7 @@ export function useUpdateUserPhoto() {
       appAuthService.updateUserPhoto(input.userId, input.photo),
     onSuccess: (user) => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -87,7 +89,7 @@ export function useUpdateUserRole() {
       appAuthService.updateUserRole(input.userId, input.data),
     onSuccess: (user) => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -102,9 +104,18 @@ export function useUpdateUserStatus() {
   return useMutation({
     mutationFn: (input: UpdateUserStatusInput) =>
       appAuthService.updateUserStatus(input.userId, input.data),
-    onSuccess: (user) => {
+    onSuccess: (user, variables) => {
+      const action = variables.data.isDisabled ? 'disabled' : 'enabled';
+      notifications.show({
+        title: 'Success',
+        message: `User ${action} successfully. ${!variables.data.isDisabled ? '' : 'They will be logged out within 5 seconds.'}`,
+        color: 'green',
+        autoClose: 4000,
+      });
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
       queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      // Invalidate all paginated queries to update user cards
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -118,8 +129,14 @@ export function useInviteUser() {
 
   return useMutation({
     mutationFn: (data: InviteUserInput) => appAuthService.inviteUser(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+    onSuccess: (user) => {
+      notifications.show({
+        title: 'Invite Sent',
+        message: `Invitation sent to ${user.email}`,
+        color: 'green',
+        autoClose: 4000,
+      });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -136,7 +153,7 @@ export function useResendInvite() {
       appAuthService.resendInvite(input.userId, input.options),
     onSuccess: (user) => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -151,8 +168,14 @@ export function useRevokeInvite() {
   return useMutation({
     mutationFn: (input: RevokeInviteInput) => appAuthService.revokeInvite(input.userId),
     onSuccess: (user) => {
+      notifications.show({
+        title: 'Invite Revoked',
+        message: `Invitation for ${user.email} has been revoked`,
+        color: 'green',
+        autoClose: 4000,
+      });
       queryClient.invalidateQueries({ queryKey: authQueryKeys.userDetail(user.id) });
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -167,7 +190,13 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (input: DeleteUserInput) => appAuthService.deleteUser(input.userId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      notifications.show({
+        title: 'User Deleted',
+        message: 'User has been successfully deleted',
+        color: 'green',
+        autoClose: 4000,
+      });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
       queryClient.invalidateQueries({ queryKey: authQueryKeys.currentUser() });
     },
   });
@@ -182,8 +211,14 @@ export function useRestoreUser() {
 
   return useMutation({
     mutationFn: (input: RestoreUserInput) => appAuthService.restoreUser(input.userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+    onSuccess: (user) => {
+      notifications.show({
+        title: 'User Restored',
+        message: `${user.email} has been successfully restored`,
+        color: 'green',
+        autoClose: 4000,
+      });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -198,7 +233,7 @@ export function useReactivateUser() {
   return useMutation({
     mutationFn: (input: ReactivateUserInput) => appAuthService.reactivateUser(input.userId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }
@@ -215,7 +250,7 @@ export function useCleanupOrphanedUser() {
       appAuthService.cleanupOrphanedLinkedUser(input.userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: authQueryKeys.orphanedUsers() });
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.usersList() });
+      queryClient.invalidateQueries({ queryKey: authQueryKeys.users() });
     },
   });
 }

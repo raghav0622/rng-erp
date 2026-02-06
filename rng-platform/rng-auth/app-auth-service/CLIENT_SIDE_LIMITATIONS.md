@@ -12,7 +12,6 @@ These are ACCEPTED and PERMANENT constraints. They are not temporary workarounds
 - No distributed transactions
 - No server-enforced uniqueness
 - Eventual consistency windows (mitigated)
-- No global session revocation (by design)
 
 ## Limitation Scenarios & Recovery
 
@@ -22,7 +21,7 @@ These are ACCEPTED and PERMANENT constraints. They are not temporary workarounds
 
 **Detection**: `listOrphanedLinkedUsers()` identifies orphaned auth users  
 **Recovery**: `cleanupOrphanedLinkedUser()` removes orphaned record  
-**Rollback**: If soft-delete fails during linking, disabled user is automatically deleted  
+**Rollback**: If hard-delete fails during linking, disabled user is automatically deleted  
 **Outcome**: Orphaned disabled users are PREVENTED; orphaned auth users are DETECTABLE and RECOVERABLE
 
 ### 2. No Server-Enforced Email Uniqueness
@@ -46,12 +45,22 @@ These are ACCEPTED and PERMANENT constraints. They are not temporary workarounds
 **Recovery**: Owner repair or user reattempt after invite re-sent  
 **Prevention**: Invite expiry enforced (30 days max)
 
-### 5. Concurrent Sessions After Disablement
+### 5. ~~Concurrent Sessions After Disablement~~ ✅ FIXED
 
-**What can happen**: User disabled but existing sessions remain active  
-**Detection**: Auth resolution checks disabled status on next operation  
-**Timeline**: Sessions clear on 24-hour UX timeout or page reload  
-**Outcome**: Acceptable for ERP (owner can re-enable before timeout if needed)
+**Status**: ✅ RESOLVED via Firestore session tracking
+
+**Implementation**:
+
+- Sessions tracked in Firestore with 30-second heartbeat
+- Session validation checks every 5 seconds for revocation
+- Owner disables user → All Firestore sessions marked as revoked
+- User's device checks session validity → Detects revocation → Instant logout
+
+**Timeline**: Instant logout across all devices (5-second polling interval)
+
+**Outcome**: Multi-device instant logout now supported
+
+**See**: SessionRepository and validateCurrentSession() in app-auth.service.ts
 
 ## Resource Management
 

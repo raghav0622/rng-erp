@@ -40,6 +40,13 @@ export {
   WeakPasswordError,
 } from './app-auth-service/app-auth.errors';
 
+// Error message mapping for UI
+export {
+  authErrorMessages,
+  getAuthErrorMessage,
+  normalizeErrorMessage,
+} from './app-auth-service/app-auth.error-messages';
+
 // Service singleton (for advanced use cases only - prefer hooks)
 export type PublicAppAuthService = Omit<
   IAppAuthService,
