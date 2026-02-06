@@ -27,8 +27,40 @@ export default function ForgotPasswordPage() {
       );
     } catch (error) {
       const appError = error as AppAuthError;
-      setExternalErrors([appError.message]);
-      notifications.showError(appError.message, 'Failed to Send Reset Email');
+      let errorMessage = appError.message;
+
+      // Provide more specific error messages based on error code
+      if (appError.code) {
+        switch (appError.code) {
+          case 'auth/invalid-email':
+            errorMessage = 'Email address format is invalid.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'Your account has been disabled. Please contact your administrator.';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage =
+              'Too many password reset requests. Please wait a few minutes and try again.';
+            break;
+          case 'auth/not-authenticated':
+            errorMessage = 'No account found with this email address.';
+            break;
+          case 'auth/internal':
+            // Use custom message if available
+            if (appError.message !== 'Authentication error occurred.') {
+              errorMessage = appError.message;
+            } else {
+              errorMessage = 'Failed to send password reset email. Please try again.';
+            }
+            break;
+          case 'auth/infrastructure-error':
+            errorMessage = 'Network error occurred. Please check your connection and try again.';
+            break;
+        }
+      }
+
+      setExternalErrors([errorMessage]);
+      notifications.showError(errorMessage, 'Failed to Send Reset Email');
     }
   };
 

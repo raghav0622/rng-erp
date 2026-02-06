@@ -33,8 +33,51 @@ export default function SignUpWithInvitePage() {
       setTimeout(() => router.push(redirectTo), 2000);
     } catch (err) {
       const appError = err as AppAuthError;
-      setExternalErrors([appError.message]);
-      notifications.showError(appError.message, 'Registration Failed');
+      let errorMessage = appError.message;
+
+      // Provide more specific error messages based on error code
+      if (appError.code) {
+        switch (appError.code) {
+          case 'auth/invite-invalid':
+            errorMessage =
+              'No invitation found for this email address. Please check your email or request a new invitation.';
+            break;
+          case 'auth/invite-already-accepted':
+            errorMessage = 'This invitation has already been used. Please sign in instead.';
+            break;
+          case 'auth/invite-revoked':
+            errorMessage = 'This invitation has been cancelled. Please contact your administrator.';
+            break;
+          case 'auth/email-already-in-use':
+            errorMessage = 'This email is already registered. Please sign in instead.';
+            break;
+          case 'auth/weak-password':
+            errorMessage =
+              'Password is too weak. Please use at least 8 characters with uppercase, lowercase, numbers, and symbols.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Email address format is invalid.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'This account has been disabled. Please contact your administrator.';
+            break;
+          case 'auth/not-authorized':
+            errorMessage =
+              'Your account is not authorized to access the system. Please contact your administrator.';
+            break;
+          case 'auth/internal':
+            // Use custom message if available
+            if (appError.message !== 'Authentication error occurred.') {
+              errorMessage = appError.message;
+            } else {
+              errorMessage = 'Registration failed. Please try again or contact support.';
+            }
+            break;
+        }
+      }
+
+      setExternalErrors([errorMessage]);
+      notifications.showError(errorMessage, 'Registration Failed');
     }
   };
 

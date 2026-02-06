@@ -126,8 +126,27 @@ export class AuthInfrastructureError extends AppAuthError {
 
 export class InternalAuthError extends AppAuthError {
   readonly code = 'auth/internal';
-  constructor(cause?: unknown) {
-    super('Authentication error occurred.', cause);
+  constructor(messageOrCause?: string | unknown) {
+    // Compute message and cause before calling super
+    let message = 'Authentication error occurred.';
+    let cause: unknown = undefined;
+
+    if (typeof messageOrCause === 'string') {
+      message = messageOrCause;
+    } else if (
+      messageOrCause &&
+      typeof messageOrCause === 'object' &&
+      'message' in messageOrCause &&
+      typeof (messageOrCause as any).message === 'string'
+    ) {
+      // Handle { message: 'custom' } format
+      message = (messageOrCause as any).message;
+      cause = messageOrCause;
+    } else {
+      cause = messageOrCause;
+    }
+
+    super(message, cause);
   }
 }
 

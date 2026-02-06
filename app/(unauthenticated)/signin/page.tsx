@@ -29,8 +29,44 @@ export default function SignInPage() {
     } catch (error) {
       // Map error to user-friendly message
       const appError = error as AppAuthError;
-      setExternalErrors([appError.message]);
-      notifications.showError(appError.message, 'Sign In Failed');
+      let errorMessage = appError.message;
+
+      // Provide more specific error messages based on error code
+      if (appError.code) {
+        switch (appError.code) {
+          case 'auth/invalid-credentials':
+            errorMessage =
+              'Invalid email or password. Please check your credentials and try again.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'Your account has been disabled. Please contact your administrator.';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage =
+              'Too many failed attempts. Please wait a few minutes before trying again.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Email address format is invalid.';
+            break;
+          case 'auth/not-authenticated':
+            errorMessage = 'Authentication failed. Please try again.';
+            break;
+          case 'auth/session-expired':
+            errorMessage = 'Your session has expired. Please sign in again.';
+            break;
+          case 'auth/internal':
+            // Use custom message if available
+            if (appError.message !== 'Authentication error occurred.') {
+              errorMessage = appError.message;
+            } else {
+              errorMessage = 'Sign in failed. Please try again or contact support.';
+            }
+            break;
+        }
+      }
+
+      setExternalErrors([errorMessage]);
+      notifications.showError(errorMessage, 'Sign In Failed');
     }
   };
 
