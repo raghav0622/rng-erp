@@ -1,11 +1,10 @@
-'use client';
-
-import { RequireRole } from '@/rng-ui/auth/_RequireRole';
+import { OwnerOnlyLayout } from '@/rng-ui/layouts';
 import { ReactNode } from 'react';
 
-interface AuthenticatedLayoutProps {
+interface OwnerOnlyLayoutProps {
   children: ReactNode;
 }
-export default function Layout({ children }: AuthenticatedLayoutProps) {
-  return <RequireRole allow={['owner']}>{children}</RequireRole>;
+
+export default function Layout({ children }: OwnerOnlyLayoutProps) {
+  return <OwnerOnlyLayout>{children}</OwnerOnlyLayout>;
 }

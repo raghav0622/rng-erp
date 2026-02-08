@@ -1,0 +1,69 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserId() {
+      return request.auth.uid;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/app-users/$(userId)).data.role == 'owner';
+    }
+    
+    function isOwnerOrAccountant(userId) {
+      let role = get(/databases/$(database)/documents/app-users/$(userId)).data.role;
+      return isAuthenticated() && (role == 'owner' || role == 'accountant');
+    }
+    
+    function isSelf(userId) {
+      return isAuthenticated() && getUserId() == userId;
+    }
+    
+    // App Users Collection
+    match /app-users/{userId} {
+      // Owner can read all users, others can only read themselves
+      allow read: if isAuthenticated() && (isOwner(getUserId()) || isSelf(userId));
+      
+      // Only owner can create new users (invites)
+      allow create: if isOwner(getUserId());
+      
+      // Owner can update any user, users can update themselves (limited fields)
+      allow update: if isOwner(getUserId()) || 
+                      (isSelf(userId) && 
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['displayName', 'photoURL', 'lastLoginAt', 'emailVerified', 'inviteRespondedAt', 'inviteStatus', 'isRegisteredOnERP']));
+      
+      // Only owner can delete users
+      allow delete: if isOwner(getUserId());
+    }
+    
+    // Sessions Collection
+    match /sessions/{sessionId} {
+      // Users can read their own sessions
+      allow read: if isAuthenticated() && resource.data.userId == getUserId();
+      
+      // Users can create their own sessions
+      allow create: if isAuthenticated() && request.resource.data.userId == getUserId();
+      
+      // Users can update/delete their own sessions
+      allow update, delete: if isAuthenticated() && resource.data.userId == getUserId();
+    }
+    
+    // Taxonomy Collection (UI helper)
+    match /taxonomy/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

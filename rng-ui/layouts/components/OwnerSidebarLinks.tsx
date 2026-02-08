@@ -1,20 +1,19 @@
 'use client';
 
 import { RequireRole } from '@/rng-ui/auth/_RequireRole';
-import { NavLink } from '@mantine/core';
+import { RNGSideNavLink } from '@/rng-ui/ux/_RNGSideNavLink';
+import { Divider, NavLink } from '@mantine/core';
 import { IconHeart, IconTrash, IconUserPlus, IconUsers } from '@tabler/icons-react';
-import { RNGSideNavLink } from '../../ux/_RNGSideNavLink';
 
-interface DashboardSidebarProps {
-  /**
-   * Optional click handler (useful for closing mobile drawer)
-   */
+interface OwnerSidebarLinksProps {
   onClick?: () => void;
 }
 
-export function OwnerOnlySidebarLinks({ onClick }: DashboardSidebarProps) {
+export function OwnerSidebarLinks({ onClick }: OwnerSidebarLinksProps) {
   return (
     <RequireRole allow={['owner']} fallback={null}>
+      <Divider my="xs" label="Adminstration" labelPosition="center" />
+
       <NavLink label="User Management" leftSection={<IconUsers size={20} />} defaultOpened={false}>
         <RNGSideNavLink
           label="Team"

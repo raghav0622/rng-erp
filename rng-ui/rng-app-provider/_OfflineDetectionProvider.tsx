@@ -1,6 +1,6 @@
 'use client';
 
-import { notifications } from '@mantine/notifications';
+import { showNotificationOnce } from '@/rng-ui/ux';
 import { IconWifiOff } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 
@@ -17,7 +17,8 @@ export function OfflineDetectionProvider() {
 
     const handleOnline = () => {
       setIsOnline(true);
-      notifications.show({
+      showNotificationOnce({
+        dedupeKey: 'back-online',
         title: 'Back Online',
         message: 'Your connection has been restored',
         color: 'green',
@@ -27,7 +28,7 @@ export function OfflineDetectionProvider() {
 
     const handleOffline = () => {
       setIsOnline(false);
-      notifications.show({
+      showNotificationOnce({
         id: 'offline-notification',
         title: 'Offline',
         message: 'You are currently offline. Some features may be limited.',

@@ -6,5 +6,9 @@ export async function POST() {
   const cookieStore = await cookies();
   cookieStore.delete(serverConfig.cookieName);
 
-  return NextResponse.json({ success: true });
+  // Create explicit response and delete cookie from headers (Next.js 16 compatibility)
+  const response = NextResponse.json({ success: true });
+  response.cookies.delete(serverConfig.cookieName);
+
+  return response;
 }

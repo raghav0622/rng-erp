@@ -305,15 +305,10 @@ export interface AutocompleteInputItem<TValues = any> extends BaseFieldProps<TVa
 export interface TaxonomyInputItem<TValues = any> extends BaseFieldProps<TValues> {
   type: 'taxonomy';
   /**
-   * Taxonomy collection key (e.g., 'categories', 'tags', 'departments')
+   * Taxonomy parent category (e.g., 'property_type', 'project_status', 'department')
    * Everything else is handled automatically by RNGForm
    */
-  collection: string;
-  /**
-   * Allow multiple selection
-   * @default true
-   */
-  multiple?: boolean;
+  taxonomy: string;
 }
 
 export interface SliderInputItem<TValues = any> extends BaseFieldProps<TValues> {

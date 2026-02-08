@@ -26,11 +26,18 @@ import { authQueryKeys } from './keys';
  * return <LoginPrompt />;
  * ```
  * Do NOT treat null as an error requiring an error boundary.
+ *
+ * **Cross-device status updates:**
+ * - Polls every 5 seconds to detect if user has been disabled by owner on another device
+ * - Works with background session timer that checks Firestore for disabled status
+ * - Ensures disabled users are logged out within 5 seconds across all devices
  */
 export function useCurrentUser() {
   return useSuspenseQuery({
     queryKey: authQueryKeys.currentUser(),
     queryFn: () => appAuthService.getCurrentUser(),
+    refetchInterval: 5000, // Poll every 5 seconds to detect disabled status changes
+    refetchOnWindowFocus: true, // Also check when user returns to tab
   });
 }
 
@@ -62,6 +69,8 @@ export function useGetUserByEmail(email: string) {
  * Query hook: list all users.
  * Throws AppAuthError if unable to fetch.
  * Suspends if no cached data.
+ *
+ * No background polling - use manual refetch when updates are needed.
  */
 export function useListUsers() {
   return useSuspenseQuery({
@@ -74,6 +83,8 @@ export function useListUsers() {
  * Query hook: paginated user list.
  * Throws AppAuthError if unable to fetch.
  * Suspends if no cached data.
+ *
+ * No background polling - use manual refetch when updates are needed.
  *
  * @param pageSize - Number of items per page (must be > 0)
  * @param pageToken - Cursor for pagination (from previous response)
@@ -90,6 +101,8 @@ export function useListUsersPaginated(pageSize: number, pageToken?: string) {
  * Query hook: search users by partial query object.
  * Throws AppAuthError if unable to fetch.
  * Suspends if no cached data.
+ *
+ * No background polling - use manual refetch when updates are needed.
  *
  * @param query - Partial AppUser object for filtering. Empty {} returns results based on service behavior.
  * @returns Promise<{ results: AppUser[]; truncated: boolean }>
@@ -122,6 +135,8 @@ export function useSearchUsers(query?: Partial<AppUser>) {
  * Query hook: list orphaned linked users (maintenance API).
  * Throws AppAuthError if unable to fetch or not authorized.
  * Suspends if no cached data.
+ *
+ * No background polling - manual refetch recommended after cleanup operations.
  */
 export function useListOrphanedUsers() {
   return useSuspenseQuery({

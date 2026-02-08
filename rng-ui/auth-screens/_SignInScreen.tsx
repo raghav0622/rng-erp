@@ -37,13 +37,15 @@ export function SignInScreen({ redirectTo = '/dashboard', onSignInSuccess }: Sig
 
   const handleSubmit = async (values: { email: string; password: string }) => {
     setExternalErrors([]);
+    setIsRedirecting(true);
     try {
       await signIn.mutateAsync(values);
       onSignInSuccess?.();
-      // On success, redirect with loading state
-      setIsRedirecting(true);
+      // On success, redirect with client-side navigation
+      // The session is already updated, and cookie is set, so middleware will allow access
       router.push(redirectTo);
     } catch (error) {
+      setIsRedirecting(false);
       // Map error code to user-friendly message
       const errorMessages = getAuthErrorMessage(error);
       const normalizedErrors = normalizeErrorMessage(errorMessages);

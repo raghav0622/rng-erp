@@ -15,6 +15,8 @@
  * - FIREBASE_CLIENT_EMAIL
  * - FIREBASE_PRIVATE_KEY
  */
+import 'server-only';
+
 import * as admin from 'firebase-admin';
 import { env } from './env';
 

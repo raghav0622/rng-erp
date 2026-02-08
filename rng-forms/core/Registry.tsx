@@ -55,10 +55,7 @@ const LazyCheckbox = React.lazy(() =>
 const LazyRadio = React.lazy(() =>
   import('../components/inputs/SelectionInputs').then((m) => ({ default: m.RadioField })),
 );
-// const LazyAutocomplete = React.lazy(() =>
-//   import('../components/inputs/SelectionInputs').then((m) => ({ default: m.AutocompleteField })),
-// );
-// const LazyTaxonomy = React.lazy(() => import('../components/inputs/TaxonomyInput'));
+const LazyTaxonomy = React.lazy(() => import('../components/inputs/TaxonomyInput'));
 const LazyArrayField = React.lazy(() => import('../components/layouts/ArrayField'));
 const LazyMathInput = React.lazy(() => import('../components/inputs/MathInputField'));
 const LazyCalculatedField = React.lazy(() => import('../components/inputs/CalculatedField'));
@@ -98,8 +95,7 @@ export const COMPONENT_REGISTRY: Record<string, React.ComponentType<any>> = {
   switch: LazySwitch,
   radio: LazyRadio,
   segmented: LazySegmented,
-  // autocomplete: LazyAutocomplete,
-  // taxonomy: LazyTaxonomy,
+  taxonomy: LazyTaxonomy,
   slider: LazySlider,
   'range-slider': LazyRangeSlider,
 

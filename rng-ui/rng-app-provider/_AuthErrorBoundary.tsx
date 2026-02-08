@@ -3,6 +3,7 @@
 import { AppAuthError } from '@/rng-platform';
 import { Alert, Button, Container, Stack, Text, Title } from '@mantine/core';
 import { IconAlertCircle, IconLock, IconUserOff } from '@tabler/icons-react';
+import { useRouter } from 'next/navigation';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 export interface AuthErrorBoundaryProps {
@@ -94,7 +95,22 @@ function DefaultAuthErrorFallback({
   error: AppAuthError;
   onReset: () => void;
 }) {
+  const router = useRouter();
   const errorDetails = getErrorDetails(error);
+
+  // For authentication errors that require sign-in, redirect instead of resetting
+  const shouldRedirectToSignIn =
+    error.code === 'auth/not-authenticated' ||
+    error.code === 'auth/user-disabled' ||
+    error.code === 'auth/session-expired';
+
+  const handleAction = () => {
+    if (shouldRedirectToSignIn) {
+      router.push('/signin');
+    } else {
+      onReset();
+    }
+  };
 
   return (
     <Container size="sm" py="xl">
@@ -125,8 +141,8 @@ function DefaultAuthErrorFallback({
           </Stack>
         </Alert>
 
-        <Button onClick={onReset} variant="light">
-          Try Again
+        <Button onClick={handleAction} variant="light">
+          {shouldRedirectToSignIn ? 'Go to Sign In' : 'Try Again'}
         </Button>
       </Stack>
     </Container>

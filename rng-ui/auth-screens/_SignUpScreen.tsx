@@ -54,7 +54,10 @@ export function SignUpScreen({
       setSignupComplete(true);
       onSignUpSuccess?.();
       setIsRedirecting(true);
-      setTimeout(() => router.push(redirectTo), redirectDelay);
+      // Use client-side navigation with delay to show success message
+      setTimeout(() => {
+        router.push(redirectTo);
+      }, redirectDelay);
     } catch (error) {
       // Map error code to user-friendly message
       const errorMessages = getAuthErrorMessage(error);

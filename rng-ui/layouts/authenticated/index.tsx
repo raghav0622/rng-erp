@@ -4,9 +4,8 @@ import { useAuthSession, useRequireAuthenticated } from '@/rng-platform/rng-auth
 import { RNGLoadingOverlay } from '@/rng-ui/ux';
 import { AppShell } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { ReactNode } from 'react';
-import Header from './_header';
-import Sidebar from './_sidebar';
+import { ReactNode, useEffect } from 'react';
+import { AuthenticatedHeader, AuthenticatedSidebar } from '../components';
 
 interface AuthenticatedLayoutProps {
   children: ReactNode;
@@ -16,14 +15,28 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
 
-  // Wait for auth to resolve before calling useRequireAuthenticated
+  // Redirect to sign-in if session becomes unauthenticated (e.g., user disabled by owner)
+  // Use full page reload to ensure middleware sees cleared cookie
+  useEffect(() => {
+    if (session.state === 'unauthenticated') {
+      // Force full page reload to /signin to avoid race conditions with cookie clearing
+      // Client-side navigation (router.push) can cause redirect loops if cookie isn't cleared yet
+      window.location.href = '/signin';
+    }
+  }, [session.state]);
+
+  // Wait for auth to resolve before rendering
   if (session.state === 'unknown' || session.state === 'authenticating') {
     return <RNGLoadingOverlay />;
   }
 
-  // Now safe to call - will throw NotAuthenticatedError if not authenticated
-  // which will be caught by AuthErrorBoundary
-  const user = useRequireAuthenticated();
+  // If unauthenticated, show loading while redirecting (window.location.href will take over)
+  if (session.state === 'unauthenticated') {
+    return <RNGLoadingOverlay />;
+  }
+
+  // Now safe to call - user is authenticated
+  useRequireAuthenticated();
 
   return (
     <AppShell
@@ -38,7 +51,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
       transitionTimingFunction="ease"
     >
       <AppShell.Header>
-        <Header
+        <AuthenticatedHeader
           mobileOpened={mobileOpened}
           desktopOpened={desktopOpened}
           toggleMobile={toggleMobile}
@@ -47,7 +60,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
       </AppShell.Header>
 
       <AppShell.Navbar style={{ padding: 0, gap: 0 }}>
-        <Sidebar onClick={toggleMobile} />
+        <AuthenticatedSidebar onClick={toggleMobile} />
       </AppShell.Navbar>
 
       <AppShell.Main>{children}</AppShell.Main>

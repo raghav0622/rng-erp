@@ -1,8 +1,8 @@
 'use client';
 
+import { AppUser } from '@/rng-platform';
 import { Alert, type AlertProps } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
-import type { AppUser } from '../../app-auth-service/internal-app-user-service/app-user.contracts';
 import { hasVerifiedEmail } from './utils/userHelpers';
 
 export interface EmailVerificationBadgeProps extends Omit<AlertProps, 'title' | 'children'> {

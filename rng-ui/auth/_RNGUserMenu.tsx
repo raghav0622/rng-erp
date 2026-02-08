@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuthSession, useRequireAuthenticated } from '@/rng-platform/rng-auth';
-import { Button, Group, Menu, Modal, Text } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, Modal, Text } from '@mantine/core';
 import { IconLogout, IconUser } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -10,7 +10,7 @@ import { UserProfileCard } from './_UserProfileCard';
 import { useMenuState, useModalState } from './utils';
 
 /**
- * Beautiful user menu with avatar, profile card, and sign out
+ * Clean and sleek user menu with avatar, profile card, and sign out
  * Shows user info in dropdown with smooth animations
  *
  * Uses auth context to display current user info and handle sign out
@@ -40,28 +40,26 @@ export function RNGUserMenu() {
         onClose={menuState.close}
         position="bottom-end"
         shadow="md"
-        width={280}
+        width={320}
+        offset={8}
       >
         <Menu.Target>
-          <button
-            type="button"
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-            }}
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="lg"
+            radius="xl"
             aria-label="User menu"
           >
             <UserAvatar name={user?.name || ''} photoUrl={user?.photoUrl} />
-          </button>
+          </ActionIcon>
         </Menu.Target>
 
-        <Menu.Dropdown>
+        <Menu.Dropdown p="md">
           <UserProfileCard showCreatedAt={false} showRegistrationStatus={false} user={user} />
-          <Menu.Divider />
+          <Menu.Divider my="sm" />
           <Menu.Item leftSection={<IconUser size={16} />} component={Link} href="/profile">
-            Profile
+            Profile Settings
           </Menu.Item>
           <Menu.Item
             color="red"
@@ -76,10 +74,11 @@ export function RNGUserMenu() {
       <Modal
         opened={signoutModalState.opened}
         onClose={signoutModalState.close}
-        title="Sign out?"
+        title="Sign out"
         centered
+        radius="lg"
       >
-        <Text mb="md">
+        <Text size="sm" c="dimmed" mb="lg">
           Are you sure you want to sign out? You will need to sign in again to access your account.
         </Text>
         <Group justify="flex-end" gap="sm">

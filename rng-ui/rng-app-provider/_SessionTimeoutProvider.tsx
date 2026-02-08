@@ -1,6 +1,6 @@
 'use client';
 
-import { notifications } from '@mantine/notifications';
+import { showNotificationOnce } from '@/rng-ui/ux';
 import { useEffect, useState } from 'react';
 
 /**
@@ -32,7 +32,8 @@ export function SessionTimeoutProvider() {
         const elapsed = Date.now() - sessionStartTime;
 
         if (elapsed >= WARNING_THRESHOLD_2 && !warned2) {
-          notifications.show({
+          showNotificationOnce({
+            dedupeKey: 'session-expiring-6h',
             title: 'Session Expiring Soon',
             message: 'Your session will expire in less than 6 hours. Please save your work.',
             color: 'red',
@@ -40,7 +41,8 @@ export function SessionTimeoutProvider() {
           });
           setWarned2(true);
         } else if (elapsed >= WARNING_THRESHOLD_1 && !warned1) {
-          notifications.show({
+          showNotificationOnce({
+            dedupeKey: 'session-expiring-24h',
             title: 'Session Expires in ~24 Hours',
             message: 'Your session will expire soon. You will need to sign in again.',
             color: 'yellow',

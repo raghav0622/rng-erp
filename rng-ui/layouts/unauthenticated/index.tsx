@@ -1,9 +1,8 @@
 'use client';
 
-import { RNGLogo } from '@/rng-ui/brand';
-import { RNGDarkModeButton } from '@/rng-ui/ux';
-import { AppShell, Group } from '@mantine/core';
+import { AppShell } from '@mantine/core';
 import { ReactNode } from 'react';
+import { UnauthenticatedHeader } from '../components';
 
 export function UnauthenticatedLayout({ children }: { children: ReactNode }) {
   return (
@@ -15,13 +14,7 @@ export function UnauthenticatedLayout({ children }: { children: ReactNode }) {
     >
       {/* Beautiful header with burger menus, logo, and user controls */}
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
-          <RNGLogo />
-
-          <Group gap="xs" wrap="nowrap">
-            <RNGDarkModeButton />
-          </Group>
-        </Group>
+        <UnauthenticatedHeader />
       </AppShell.Header>
 
       <AppShell.Main>{children}</AppShell.Main>

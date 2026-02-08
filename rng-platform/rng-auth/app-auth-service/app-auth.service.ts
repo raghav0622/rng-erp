@@ -292,6 +292,20 @@ class AppAuthService implements IAppAuthService {
         });
         this.currentSessionId = null;
         this.stopSessionHeartbeat();
+
+        // Clear server-side session cookie immediately
+        try {
+          await this.clearSessionCookie();
+          globalLogger.info('[AppAuthService] Session cookie cleared for missing session');
+        } catch (cookieErr) {
+          globalLogger.error('[AppAuthService] Failed to clear cookie for missing session', {
+            error: cookieErr instanceof Error ? cookieErr.message : String(cookieErr),
+          });
+        }
+
+        // Add small delay to ensure cookie deletion propagates
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
         // Set error state for UI notification
         this.setSession({
           state: 'unauthenticated',
@@ -314,6 +328,20 @@ class AppAuthService implements IAppAuthService {
         });
         this.currentSessionId = null;
         this.stopSessionHeartbeat();
+
+        // Clear server-side session cookie immediately
+        try {
+          await this.clearSessionCookie();
+          globalLogger.info('[AppAuthService] Session cookie cleared for revoked session');
+        } catch (cookieErr) {
+          globalLogger.error('[AppAuthService] Failed to clear cookie for revoked session', {
+            error: cookieErr instanceof Error ? cookieErr.message : String(cookieErr),
+          });
+        }
+
+        // Add small delay to ensure cookie deletion propagates
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
         // Set UserDisabledError for UI to show appropriate message
         this.setSession({
           state: 'unauthenticated',
@@ -1106,7 +1134,7 @@ class AppAuthService implements IAppAuthService {
 
     // BUG #10 FIX: Active session expiry enforcement via background timer
     // BUG #27 FIX: Stop timer when session ends to prevent resource leaks
-    // ENHANCEMENT: Also check for disabled status periodically for instant logout
+    // ENHANCEMENT: Check for disabled status every 2 seconds for faster detection
     this.sessionExpiryTimer = setInterval(async () => {
       // Stop timer when logged out to save resources
       if (this.session.state !== 'authenticated') {
@@ -1125,7 +1153,7 @@ class AppAuthService implements IAppAuthService {
         const expiresAt = this.session.sessionExpiresAt;
         const timeUntilExpiry = expiresAt.getTime() - now.getTime();
         const fiveMinutes = 5 * 60 * 1000;
-        
+
         // Session expiry warning: 5 minutes before expiry
         if (
           timeUntilExpiry > 0 &&
@@ -1155,7 +1183,7 @@ class AppAuthService implements IAppAuthService {
             }
           });
         }
-        
+
         if (now > expiresAt) {
           globalLogger.warn(
             '[AppAuthService] Session expired by background timer; forcing logout',
@@ -1201,7 +1229,24 @@ class AppAuthService implements IAppAuthService {
                 error: signOutErr instanceof Error ? signOutErr.message : String(signOutErr),
               });
             }
-            // Clear session
+            // Clear server-side session cookie to prevent redirect loops
+            // IMPORTANT: Wait for cookie to be cleared before updating session state
+            // to prevent race conditions with client-side navigation
+            try {
+              await this.clearSessionCookie();
+              globalLogger.info('[AppAuthService] Session cookie cleared for disabled user');
+            } catch (cookieErr) {
+              globalLogger.error(
+                '[AppAuthService] Failed to clear session cookie for disabled user',
+                {
+                  error: cookieErr instanceof Error ? cookieErr.message : String(cookieErr),
+                },
+              );
+            }
+            // Add small delay to ensure cookie deletion propagates
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            // Clear session - this will trigger redirect in UI
             this.setSession({
               state: 'unauthenticated',
               user: null,
@@ -1281,6 +1326,7 @@ class AppAuthService implements IAppAuthService {
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Ensure cookies are sent/received
         body: JSON.stringify({ idToken }),
       });
 
@@ -1289,6 +1335,11 @@ class AppAuthService implements IAppAuthService {
           status: response.status,
           statusText: response.statusText,
         });
+        // Log response body for debugging
+        const responseText = await response.text();
+        globalLogger.error('[AppAuthService] Login API response', { body: responseText });
+      } else {
+        globalLogger.info('[AppAuthService] Successfully synced token to cookie');
       }
     } catch (err) {
       // Don't throw - cookie sync failure shouldn't break auth flow
@@ -1336,6 +1387,20 @@ class AppAuthService implements IAppAuthService {
     }
     try {
       if (!firebaseUser) {
+        // Don't immediately transition to unauthenticated from 'unknown' state
+        // Firebase Auth may still be rehydrating from persistence after a page load
+        // Wait a moment to avoid race conditions with cookie-based auth
+        if (this.session.state === 'unknown') {
+          // Give Firebase Auth a chance to rehydrate before marking as unauthenticated
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          // Check again if user appeared during the wait
+          const currentUser = this.auth.currentUser;
+          if (currentUser) {
+            // User appeared, let the next auth state change handle it
+            return;
+          }
+        }
+
         this.setSession({
           state: 'unauthenticated',
           user: null,
@@ -1346,6 +1411,20 @@ class AppAuthService implements IAppAuthService {
         });
         return;
       }
+
+      // Only transition to authenticating if coming from unauthenticated or unknown
+      // If already authenticated, skip to avoid invalid transition (e.g., during token refresh)
+      if (this.session.state === 'unauthenticated' || this.session.state === 'unknown') {
+        this.setSession({
+          state: 'authenticating',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+      }
+
       const appUser = await this._resolveAuthenticatedUser(firebaseUser);
       const sessionExpiresAt = new Date();
       sessionExpiresAt.setHours(sessionExpiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS);
@@ -1694,14 +1773,17 @@ class AppAuthService implements IAppAuthService {
             sessionExpiresAt.getHours() + AppAuthService.SESSION_EXPIRY_HOURS,
           );
           // Transition through authenticating state to maintain state machine validity
-          this.setSession({
-            state: 'authenticating',
-            user: null,
-            emailVerified: null,
-            lastTransitionError: null,
-            lastAuthError: null,
-            sessionExpiresAt: null,
-          });
+          // Only transition if not already in authenticating or authenticated state
+          if (this.session.state !== 'authenticating' && this.session.state !== 'authenticated') {
+            this.setSession({
+              state: 'authenticating',
+              user: null,
+              emailVerified: null,
+              lastTransitionError: null,
+              lastAuthError: null,
+              sessionExpiresAt: null,
+            });
+          }
           // Now set to authenticated
           this.setSession({
             state: 'authenticated',
@@ -1747,14 +1829,40 @@ class AppAuthService implements IAppAuthService {
 
   async signIn(email: string, password: string): Promise<AuthSession> {
     return this.withAuthOperation(async () => {
-      this.setSession({
-        state: 'authenticating',
-        user: null,
-        emailVerified: null,
-        lastTransitionError: null,
-        lastAuthError: null,
-        sessionExpiresAt: null,
-      });
+      // If already authenticated, sign out first to ensure clean state
+      if (this.session.state === 'authenticated') {
+        globalLogger.info(
+          '[AppAuthService] User already authenticated, signing out before sign-in',
+        );
+        try {
+          await firebaseSignOut(this.auth);
+          // Explicitly set state to unauthenticated after sign out to allow transition to authenticating
+          this.setSession({
+            state: 'unauthenticated',
+            user: null,
+            emailVerified: null,
+            lastTransitionError: null,
+            lastAuthError: null,
+            sessionExpiresAt: null,
+          });
+          // Wait for state to settle
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        } catch (err) {
+          globalLogger.warn('[AppAuthService] Pre-signin logout failed', { error: err });
+        }
+      }
+
+      // Only transition to authenticating if not already in that state
+      if (this.session.state !== 'authenticating') {
+        this.setSession({
+          state: 'authenticating',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+      }
       const normalizedEmail = normalizeEmail(email);
       try {
         const cred = await signInWithEmailAndPassword(this.auth, normalizedEmail, password);
@@ -1775,7 +1883,7 @@ class AppAuthService implements IAppAuthService {
           lastAuthError: null,
           sessionExpiresAt,
         });
-        
+
         // Create session in Firestore and start heartbeat
         try {
           this.currentSessionId = await this.createSession(appUser.id);
@@ -1786,7 +1894,7 @@ class AppAuthService implements IAppAuthService {
             error: sessionErr instanceof Error ? sessionErr.message : String(sessionErr),
           });
         }
-        
+
         return this.session;
       } catch (err) {
         await firebaseSignOut(this.auth);
@@ -1982,15 +2090,36 @@ class AppAuthService implements IAppAuthService {
     // MISSED-006 FIX: Normalize email at API boundary
     const normalizedEmail = normalizeEmail(email);
     return this.withAuthOperation(async () => {
+      // If already authenticated, sign out first to ensure clean state
+      if (this.session.state === 'authenticated') {
+        globalLogger.info('[AppAuthService] User already authenticated, signing out before signup');
+        try {
+          await firebaseSignOut(this.auth);
+          this.setSession({
+            state: 'unauthenticated',
+            user: null,
+            emailVerified: null,
+            lastTransitionError: null,
+            lastAuthError: null,
+            sessionExpiresAt: null,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        } catch (err) {
+          globalLogger.warn('[AppAuthService] Pre-signup logout failed', { error: err });
+        }
+      }
+
       // Set authenticating state at the start of the flow
-      this.setSession({
-        state: 'authenticating',
-        user: null,
-        emailVerified: null,
-        lastTransitionError: null,
-        lastAuthError: null,
-        sessionExpiresAt: null,
-      });
+      if (this.session.state !== 'authenticating') {
+        this.setSession({
+          state: 'authenticating',
+          user: null,
+          emailVerified: null,
+          lastTransitionError: null,
+          lastAuthError: null,
+          sessionExpiresAt: null,
+        });
+      }
 
       let invitedUser: AppUser | null = null;
       try {

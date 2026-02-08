@@ -35,7 +35,7 @@ export function UserCardDesign({
       )}
 
       {/* Content Container */}
-      <Stack gap={0} align="center" py="md" px="sm">
+      <Stack gap={0} align="center" py="xs" px="xs">
         {/* Avatar - Centered at top */}
         <div style={{ position: 'relative', marginBottom: '0.5rem' }}>
           <Avatar src={user.photoUrl} size={64} radius="50%">
@@ -59,11 +59,6 @@ export function UserCardDesign({
           {user.isDisabled && (
             <Badge size="sm" variant="filled">
               Disabled
-            </Badge>
-          )}
-          {!user.emailVerified && user.role !== 'owner' && (
-            <Badge size="sm" variant="filled">
-              Unverified
             </Badge>
           )}
         </Group>

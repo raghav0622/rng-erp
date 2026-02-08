@@ -511,7 +511,8 @@ export class AppUserService implements IAppUserService {
     // If user is unregistered (invited but never signed up), hard delete the Firestore record
     const isUnregistered = user!.inviteStatus === 'invited' && !user!.isRegisteredOnERP;
     if (isUnregistered) {
-      await this.appUserRepo.delete(data.userId);
+      // Hard delete for unregistered users (permanent removal)
+      await this.appUserRepo.hardDelete(data.userId);
     } else {
       // For registered users, soft delete only (reversible)
       await this.appUserRepo.delete(data.userId);

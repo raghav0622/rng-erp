@@ -1,7 +1,7 @@
 'use client';
 
 import { AppUser } from '@/rng-platform';
-import { Badge, Card, Group, Stack, Text } from '@mantine/core';
+import { Group, Stack, Text } from '@mantine/core';
 import { IconClock } from '@tabler/icons-react';
 import { RoleBadge } from './_RoleBadge';
 import { UserAvatar } from './_UserAvatar';
@@ -16,9 +16,9 @@ export interface UserProfileCardProps {
 
 export function UserProfileCard({
   user,
-  showCreatedAt = false,
+  showCreatedAt = true,
   showRoleUpdatedAt = false,
-  showRegistrationStatus = false,
+  showRegistrationStatus = true,
   actions,
 }: UserProfileCardProps) {
   const formatDate = (date: Date | undefined) => {
@@ -31,65 +31,47 @@ export function UserProfileCard({
   };
 
   return (
-    <Card padding="xs" radius="md">
-      <Stack gap="xs">
-        <Group gap="xs">
-          <UserAvatar photoUrl={user.photoUrl} name={user.name} size="lg" />
-          <Stack gap="0">
-            <Text size="md">{user.name}</Text>
-            <Text size="xs" c="dimmed">
+    <Stack gap="sm">
+      <Group gap="sm" align="flex-start">
+        <UserAvatar photoUrl={user.photoUrl} name={user.name} size="lg" />
+        <Stack gap="xs">
+          <Stack gap="2">
+            <Text fw={500} size="sm" lh={1}>
+              {user.name}
+            </Text>
+            <Text size="xs" c="dimmed" lh={1}>
               {user.email}
             </Text>
+          </Stack>
+          <RoleBadge role={user.role} size="sm" />
+        </Stack>
+      </Group>
 
-            <Group gap="xs" mt="xs">
-              <RoleBadge role={user.role} size="md" />
-
-              {user.isDisabled && (
-                <Badge color="red" variant="light">
-                  Disabled
-                </Badge>
-              )}
-              {user.roleCategory && (
-                <Badge variant="dot" color="gray">
-                  {user.roleCategory}
-                </Badge>
-              )}
-
-              {!user.emailVerified && (
-                <Badge size="sm" color="orange" variant="dot">
-                  Email not verified
-                </Badge>
-              )}
+      {/* Timestamps */}
+      {(showCreatedAt || showRoleUpdatedAt) && (
+        <Stack gap="xs">
+          {showCreatedAt && user.createdAt && (
+            <Group gap="xs" align="center">
+              <IconClock size={13} style={{ color: 'var(--mantine-color-dimmed)' }} />
+              <Text size="xs" c="dimmed">
+                Created {formatDate(user.createdAt)}
+              </Text>
             </Group>
-          </Stack>
-        </Group>
+          )}
+          {showRoleUpdatedAt && user.roleUpdatedAt && (
+            <Group gap="xs" align="center">
+              <IconClock size={13} style={{ color: 'var(--mantine-color-dimmed)' }} />
+              <Text size="xs" c="dimmed">
+                Role updated {formatDate(user.roleUpdatedAt)}
+              </Text>
+            </Group>
+          )}
+        </Stack>
+      )}
 
-        {/* Timestamps */}
-        {(showCreatedAt || showRoleUpdatedAt) && (
-          <Stack gap="xs">
-            {showCreatedAt && user.createdAt && (
-              <Group gap="xs">
-                <IconClock size={14} style={{ color: 'var(--mantine-color-dimmed)' }} />
-                <Text size="xs" c="dimmed">
-                  Created: {formatDate(user.createdAt)}
-                </Text>
-              </Group>
-            )}
-            {showRoleUpdatedAt && user.roleUpdatedAt && (
-              <Group gap="xs">
-                <IconClock size={14} style={{ color: 'var(--mantine-color-dimmed)' }} />
-                <Text size="xs" c="dimmed">
-                  Role updated: {formatDate(user.roleUpdatedAt)}
-                </Text>
-              </Group>
-            )}
-          </Stack>
-        )}
-
-        {/* Actions */}
-        {actions && actions}
-      </Stack>
-    </Card>
+      {/* Actions */}
+      {actions && actions}
+    </Stack>
   );
 }
 

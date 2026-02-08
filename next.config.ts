@@ -16,6 +16,19 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  serverExternalPackages: [
+    'firebase-admin',
+    '@google-cloud/firestore',
+    '@google-cloud/storage',
+    'google-gax',
+    'google-auth-library',
+    'google-logging-utils',
+    'protobufjs',
+    'node-forge',
+    '@grpc/grpc-js',
+    '@t3-oss/env-nextjs',
+  ],
+
   // ⚡ COMPILER OPTIMIZATIONS
   experimental: {
     optimizePackageImports: ['@mantine/core', '@tabler/icons-react'],

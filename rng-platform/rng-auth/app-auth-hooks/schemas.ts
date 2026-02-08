@@ -15,12 +15,18 @@ import type {
  */
 
 // Authentication flows
-export const ownerSignUpSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  name: z.string().min(1, 'Name is required'),
-  photoUrl: z.string().optional(),
-});
+export const ownerSignUpSchema = z
+  .object({
+    email: z.string().email('Invalid email address'),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+    name: z.string().min(1, 'Name is required'),
+    photoUrl: z.string().optional(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  });
 export type OwnerSignUpInput = z.infer<typeof ownerSignUpSchema>;
 
 export const signInSchema = z.object({
@@ -29,16 +35,28 @@ export const signInSchema = z.object({
 });
 export type SignInInput = z.infer<typeof signInSchema>;
 
-export const confirmPasswordResetSchema = z.object({
-  code: z.string().min(1, 'Reset code is required'),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-});
+export const confirmPasswordResetSchema = z
+  .object({
+    code: z.string().min(1, 'Reset code is required'),
+    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  });
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>;
 
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-});
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 export const confirmPasswordSchema = z.object({

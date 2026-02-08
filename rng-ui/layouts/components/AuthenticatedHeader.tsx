@@ -5,19 +5,19 @@ import { RNGLogo } from '@/rng-ui/brand';
 import { RNGDarkModeButton } from '@/rng-ui/ux/_RNGDarkModeButton';
 import { Burger, Group } from '@mantine/core';
 
-interface HeaderProps {
+interface AuthenticatedHeaderProps {
   mobileOpened: boolean;
   desktopOpened: boolean;
   toggleMobile: () => void;
   toggleDesktop: () => void;
 }
 
-export default function Header({
+export function AuthenticatedHeader({
   mobileOpened,
   desktopOpened,
   toggleMobile,
   toggleDesktop,
-}: HeaderProps) {
+}: AuthenticatedHeaderProps) {
   return (
     <Group h="100%" px="sm" justify="space-between" wrap="nowrap">
       <Group gap="sm" wrap="nowrap">

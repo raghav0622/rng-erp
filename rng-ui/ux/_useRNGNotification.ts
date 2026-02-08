@@ -1,38 +1,51 @@
 'use client';
 
-import { notifications } from '@mantine/notifications';
+import type { NotificationData } from '@mantine/notifications';
+import { hideNotification, showNotificationOnce } from './_notification-utils';
+
+type RNGNotificationOptions = {
+  id?: string;
+  dedupeKey?: string;
+  autoClose?: NotificationData['autoClose'];
+};
 
 export function useRNGNotification() {
-  const showSuccess = (message: string, title?: string) => {
-    notifications.show({
+  const showSuccess = (message: string, title?: string, options?: RNGNotificationOptions) => {
+    showNotificationOnce({
+      id: options?.id,
+      dedupeKey: options?.dedupeKey,
       title: title || 'Success',
       message,
       color: 'green',
-      autoClose: 4000,
+      autoClose: options?.autoClose ?? 4000,
     });
   };
 
-  const showError = (message: string, title?: string) => {
-    notifications.show({
+  const showError = (message: string, title?: string, options?: RNGNotificationOptions) => {
+    showNotificationOnce({
+      id: options?.id,
+      dedupeKey: options?.dedupeKey,
       title: title || 'Error',
       message,
       color: 'red',
-      autoClose: 5000,
+      autoClose: options?.autoClose ?? 5000,
     });
   };
 
-  const showInfo = (message: string, title?: string) => {
-    notifications.show({
+  const showInfo = (message: string, title?: string, options?: RNGNotificationOptions) => {
+    showNotificationOnce({
+      id: options?.id,
+      dedupeKey: options?.dedupeKey,
       title: title || 'Info',
       message,
       color: 'blue',
-      autoClose: 3000,
+      autoClose: options?.autoClose ?? 3000,
     });
   };
 
   const showLoading = (message: string, id?: string) => {
     const notifId = id || `loading-${Date.now()}`;
-    notifications.show({
+    showNotificationOnce({
       id: notifId,
       title: 'Loading',
       message,
@@ -44,7 +57,7 @@ export function useRNGNotification() {
   };
 
   const hideLoading = (id: string) => {
-    notifications.hide(id);
+    hideNotification(id);
   };
 
   return {

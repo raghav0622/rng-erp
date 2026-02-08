@@ -2,7 +2,7 @@
 
 import { useAuthSession } from '@/rng-platform/rng-auth';
 import { UserDisabledError } from '@/rng-platform/rng-auth/app-auth-service/app-auth.errors';
-import { notifications } from '@mantine/notifications';
+import { showNotificationOnce } from '@/rng-ui/ux';
 import { IconAlertTriangle, IconClock, IconLock } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 
@@ -19,7 +19,8 @@ export function AuthNotificationsProvider() {
     if (session.state === lastState) return;
 
     if (session.state === 'authenticated') {
-      notifications.show({
+      showNotificationOnce({
+        dedupeKey: `auth-welcome-${session.user?.id || 'unknown'}`,
         title: 'Welcome back!',
         message: `Signed in as ${session.user?.email || 'User'}`,
         color: 'green',
@@ -28,7 +29,8 @@ export function AuthNotificationsProvider() {
     }
 
     if (session.state === 'unauthenticated' && lastState === 'authenticated') {
-      notifications.show({
+      showNotificationOnce({
+        dedupeKey: 'auth-signed-out',
         title: 'Signed out',
         message: 'You have been successfully signed out',
         color: 'blue',
@@ -42,7 +44,7 @@ export function AuthNotificationsProvider() {
   // Handle authentication errors
   useEffect(() => {
     if (!session.lastAuthError) return;
-    
+
     // Prevent duplicate notifications for the same error
     if (
       lastErrorHandled &&
@@ -52,11 +54,11 @@ export function AuthNotificationsProvider() {
     }
 
     const error = session.lastAuthError.error;
-    
+
     // Handle session expiring warning (not an actual error)
     if (error instanceof Error && error.message.startsWith('SESSION_EXPIRING:')) {
       const minutes = error.message.split(':')[1];
-      notifications.show({
+      showNotificationOnce({
         id: 'session-expiring-warning',
         title: 'Session Expiring Soon',
         message: `Your session will expire in ${minutes} minute${minutes === '1' ? '' : 's'}. Please save your work.`,
@@ -66,10 +68,11 @@ export function AuthNotificationsProvider() {
       });
       return;
     }
-    
+
     // Handle UserDisabledError - account disabled by owner
     if (error instanceof UserDisabledError) {
-      notifications.show({
+      showNotificationOnce({
+        dedupeKey: 'auth-account-disabled',
         title: 'Account Disabled',
         message: 'Your account has been disabled by an administrator. Please contact support.',
         color: 'red',
@@ -80,10 +83,11 @@ export function AuthNotificationsProvider() {
       setLastErrorHandled(session.lastAuthError.timestamp);
       return;
     }
-    
+
     // Handle session expired
     if (error instanceof Error && error.message.includes('session has expired')) {
-      notifications.show({
+      showNotificationOnce({
+        dedupeKey: 'auth-session-expired',
         title: 'Session Expired',
         message: error.message,
         color: 'orange',
@@ -93,10 +97,11 @@ export function AuthNotificationsProvider() {
       setLastErrorHandled(session.lastAuthError.timestamp);
       return;
     }
-    
+
     // Handle session invalid
     if (error instanceof Error && error.message.includes('session is no longer valid')) {
-      notifications.show({
+      showNotificationOnce({
+        dedupeKey: 'auth-session-invalid',
         title: 'Session Invalid',
         message: error.message,
         color: 'orange',

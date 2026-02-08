@@ -1,7 +1,12 @@
 'use client';
 
 import RNGForm from '@/rng-forms/RNGForm';
-import { AppAuthError, changePasswordSchema, useChangePassword } from '@/rng-platform';
+import {
+  AppAuthError,
+  changePasswordSchema,
+  useChangePassword,
+  type ChangePasswordInput,
+} from '@/rng-platform';
 import { Alert, Container, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -43,7 +48,7 @@ export function ChangePasswordScreen({ onSuccess, header, footer }: ChangePasswo
   const [externalErrors, setExternalErrors] = useState<string[]>([]);
   const [changeComplete, setChangeComplete] = useState(false);
 
-  const handleSubmit = async (values: { currentPassword: string; newPassword: string }) => {
+  const handleSubmit = async (values: ChangePasswordInput) => {
     setExternalErrors([]);
     try {
       await changePassword.mutateAsync(values);
@@ -114,6 +119,13 @@ export function ChangePasswordScreen({ onSuccess, header, footer }: ChangePasswo
                   required: true,
                   description:
                     'Minimum 8 characters with uppercase, lowercase, number, and special character',
+                },
+                {
+                  type: 'password',
+                  name: 'confirmPassword',
+                  label: 'Confirm New Password',
+                  placeholder: 'Re-enter your new password',
+                  required: true,
                 },
               ],
             }}

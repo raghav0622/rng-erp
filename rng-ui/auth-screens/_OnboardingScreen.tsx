@@ -46,6 +46,7 @@ export function OnboardingScreen({
     try {
       await ownerSignUp.mutateAsync(values);
       onOnboardingSuccess?.();
+      // Use client-side navigation - session is already updated
       router.push(redirectTo);
     } catch (error) {
       // Map error code to user-friendly message
@@ -97,6 +98,13 @@ export function OnboardingScreen({
               description:
                 'Minimum 8 characters with uppercase, lowercase, number, and special character',
               showStrength: true,
+            },
+            {
+              type: 'password',
+              name: 'confirmPassword',
+              label: 'Confirm Password',
+              placeholder: 'Re-enter your password',
+              required: true,
             },
             {
               type: 'image-upload',

@@ -11,7 +11,7 @@ class SessionRepository extends AbstractClientFirestoreRepository<UserSession> {
     super(clientDb, {
       collectionName: 'sessions',
       softDelete: false, // Sessions are hard-deleted when they expire
-      idStrategy: 'client', // Client generates session IDs
+      idStrategy: 'auto', // Auto-generate session IDs
     });
   }
 
