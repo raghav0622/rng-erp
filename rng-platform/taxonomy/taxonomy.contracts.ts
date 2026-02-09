@@ -2,11 +2,14 @@ import { BaseEntity } from '@/rng-repository';
 
 export interface Taxonomy extends BaseEntity {
   name: string;
-  values: string[]; // unique within parent
+  values: string[];
 }
 
 export interface ITaxonomyService {
-  getTaxonomy(parent: string): Promise<string[]>;
-  createTaxonomy(parent: string, value: string): Promise<string>;
-  deleteValue(parentName: string, value: string): Promise<void>;
+  internalOnly_initiateTaxonomy(name: string): Promise<Taxonomy>;
+  getTaxonomyByName(name: string): Promise<Taxonomy>;
+  getTaxonomyById(id: string): Promise<Taxonomy>;
+  updateTaxonomyValues(id: string, values?: string[]): Promise<Taxonomy>;
+  deleteTaxonomy(id: string): Promise<void>;
+  listTaxonomies(): Promise<Taxonomy[]>;
 }

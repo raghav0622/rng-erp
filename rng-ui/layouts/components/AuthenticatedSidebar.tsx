@@ -23,12 +23,6 @@ export function AuthenticatedSidebar({ onClick }: AuthenticatedSidebarProps) {
         </Stack>
 
         <Divider my="xs" label="General" labelPosition="center" />
-        <RNGSideNavLink
-          label="Taxonomy Dashboard"
-          icon={<IconAutomation size={20} />}
-          href="/taxonomy"
-          onClick={onClick}
-        />
       </AppShell.Section>
 
       <AppShell.Section grow component={ScrollArea} m={0}>
