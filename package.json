@@ -97,6 +97,7 @@
     "@vitest/browser-playwright": "^4.0.16",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
+    "eslint-config-next": "^16.1.6",
     "firebase-tools": "^15.5.1",
     "jsdom": "^27.4.0",
     "playwright": "^1.57.0",

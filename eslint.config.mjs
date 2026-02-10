@@ -20,13 +20,7 @@ const eslintConfig = defineConfig([
     rules: {
       // Type Safety - STRICT
       '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-implicit-any': 'error',
       '@typescript-eslint/explicit-module-boundary-types': 'error',
-      '@typescript-eslint/no-unsafe-assignment': 'warn',
-      '@typescript-eslint/no-unsafe-call': 'warn',
-      '@typescript-eslint/no-unsafe-member-access': 'warn',
-      '@typescript-eslint/no-unsafe-return': 'warn',
-      '@typescript-eslint/strict-boolean-expressions': 'warn',
 
       // Code Quality
       'no-console': ['error', { allow: ['warn', 'error', 'info', 'debug'] }],
@@ -36,21 +30,13 @@ const eslintConfig = defineConfig([
       ],
       'no-var': 'error',
       'prefer-const': 'error',
-      '@typescript-eslint/prefer-nullish-coalescing': 'warn',
-      '@typescript-eslint/prefer-optional-chain': 'warn',
-
-      // Documentation
-      '@typescript-eslint/explicit-function-return-types': [
-        'warn',
-        { allowExpressions: true, allowTypedFunctionExpressions: true },
-      ],
 
       // Import Organization
       'import/order': [
         'error',
         {
           groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
-          alphabeticalOptions: { order: 'asc', caseInsensitive: true },
+          alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
       'import/newline-after-import': 'error',

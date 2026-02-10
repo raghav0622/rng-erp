@@ -9,7 +9,7 @@ export interface DashboardViewProps {
 
 export function DashboardView({ welcomeMessage }: DashboardViewProps) {
   return (
-    <RNGPageContent title="Dashboard" description="Overview of your workspace">
+    <RNGPageContent title="Dashboard">
       <Text size="sm" c="dimmed">
         {welcomeMessage}
       </Text>
