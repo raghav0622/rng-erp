@@ -56,9 +56,11 @@ export function ImageInputField<TValues extends FieldValues>(
   const [images, setImages] = useState<ImageFileItem[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingFileRef, setEditingFileRef] = useState<File | null>(null);
   const [isCropping, setIsCropping] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editingFile = images.find((img) => img.id === editingId);
@@ -81,7 +83,7 @@ export function ImageInputField<TValues extends FieldValues>(
     canRedo,
     resetAll,
     exportImage,
-  } = useImageManipulation(editingFile?.file || null);
+  } = useImageManipulation(editingFile?.file || editingFileRef || null);
 
   const initializedRef = useRef(false);
 
@@ -185,11 +187,139 @@ export function ImageInputField<TValues extends FieldValues>(
   );
 
   const handleEditImage = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const target = images.find((img) => img.id === id);
-      if (!target?.file) return;
-      setEditingId(id);
-      setIsEditing(true);
+      if (!target) return;
+
+      // If image has no file but has a preview URL, fetch and convert it to a File
+      if (!target.file && target.preview) {
+        setIsLoadingFile(true);
+        try {
+          // Check if it's a data URL (base64)
+          if (target.preview.startsWith('data:')) {
+            // Convert data URL to blob and then to File
+            const response = await fetch(target.preview);
+            const blob = await response.blob();
+            const file = new File([blob], 'image.jpg', { type: blob.type || 'image/jpeg' });
+            
+            setImages((prev) =>
+              prev.map((img) => (img.id === id ? { ...img, file } : img)),
+            );
+            
+            setEditingId(id);
+            setIsEditing(true);
+            setIsLoadingFile(false);
+            return;
+          }
+
+          // For regular URLs, fetch should work for Firebase Storage (it supports CORS)
+          let blob: Blob;
+          try {
+            const response = await fetch(target.preview);
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            blob = await response.blob();
+            
+            // Verify we got a valid image blob
+            if (!blob.type.startsWith('image/')) {
+              throw new Error('Response is not an image');
+            }
+          } catch (fetchError) {
+            // If fetch fails, try canvas approach with CORS
+            // This is a fallback for cases where fetch doesn't work
+            try {
+              blob = await new Promise<Blob>((resolve, reject) => {
+                const img = new Image();
+                
+                // Set crossOrigin to avoid tainted canvas
+                // Firebase Storage should support this
+                img.crossOrigin = 'anonymous';
+                
+                const timeout = setTimeout(() => {
+                  reject(new Error('Image load timeout after 10 seconds'));
+                }, 10000);
+                
+                img.onload = () => {
+                  clearTimeout(timeout);
+                  try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                      reject(new Error('Could not get canvas context'));
+                      return;
+                    }
+                    
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+
+                    canvas.toBlob(
+                      (canvasBlob) => {
+                        if (!canvasBlob) {
+                          reject(new Error('Failed to convert canvas to blob'));
+                          return;
+                        }
+                        resolve(canvasBlob);
+                      },
+                      'image/jpeg',
+                      0.9,
+                    );
+                  } catch (canvasError) {
+                    reject(canvasError instanceof Error ? canvasError : new Error(String(canvasError)));
+                  }
+                };
+                
+                img.onerror = () => {
+                  clearTimeout(timeout);
+                  reject(new Error('Failed to load image - CORS may not be configured'));
+                };
+                
+                img.src = target.preview;
+              });
+            } catch (canvasError) {
+              // If both methods fail, throw a user-friendly error
+              throw new Error(
+                'Unable to load image for editing. Please delete this image and upload a new one, or ensure Firebase Storage CORS is configured.',
+              );
+            }
+          }
+          
+          // Verify blob is valid before creating File
+          if (!blob || blob.size === 0) {
+            throw new Error('Invalid image blob received');
+          }
+          
+          const fileName = target.preview.split('/').pop()?.split('?')[0] || 'image.jpg';
+          const fileType = blob.type || 'image/jpeg';
+          const file = new File([blob], fileName, { type: fileType });
+          
+          // Update the image item with the file
+          setImages((prev) =>
+            prev.map((img) => (img.id === id ? { ...img, file } : img)),
+          );
+          
+          // Store file in ref for immediate access in modal
+          setEditingFileRef(file);
+          
+          // Set editing state after file is set
+          setEditingId(id);
+          setIsEditing(true);
+          setIsLoadingFile(false);
+        } catch (error) {
+          globalLogger.error('Failed to load image for editing:', {
+            error: error instanceof Error ? error.message : String(error),
+            preview: target.preview,
+          });
+          setIsLoadingFile(false);
+          // Don't open edit modal if we can't load the file
+        }
+      } else {
+        // Image already has a file, proceed normally
+        setEditingId(id);
+        setIsEditing(true);
+      }
     },
     [images],
   );
@@ -282,6 +412,7 @@ export function ImageInputField<TValues extends FieldValues>(
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false);
     setEditingId(null);
+    setEditingFileRef(null);
   }, []);
 
   const handleMoveImage = useCallback(
@@ -367,7 +498,7 @@ export function ImageInputField<TValues extends FieldValues>(
                     height: '100%',
                     objectFit: 'contain',
                     background: '#f5f5f5',
-                    cursor: image.file ? 'pointer' : 'default',
+                    cursor: 'pointer',
                   }}
                   onClick={() => handleEditImage(image.id)}
                 />
@@ -424,22 +555,20 @@ export function ImageInputField<TValues extends FieldValues>(
                   </ActionIcon>
                 </Tooltip>
 
-                {image.file && (
-                  <Tooltip label="Edit">
-                    <Button
-                      size="xs"
-                      variant="light"
-                      style={{
-                        position: 'absolute',
-                        top: 4,
-                        left: 4,
-                      }}
-                      onClick={() => handleEditImage(image.id)}
-                    >
-                      ✎
-                    </Button>
-                  </Tooltip>
-                )}
+                <Tooltip label="Edit">
+                  <Button
+                    size="xs"
+                    variant="light"
+                    style={{
+                      position: 'absolute',
+                      top: 4,
+                      left: 4,
+                    }}
+                    onClick={() => handleEditImage(image.id)}
+                  >
+                    ✎
+                  </Button>
+                </Tooltip>
               </div>
             ))}
           </SimpleGrid>
@@ -459,20 +588,25 @@ export function ImageInputField<TValues extends FieldValues>(
 
       {mergedError && <div style={{ color: 'red', fontSize: '0.875rem' }}>{mergedError}</div>}
 
-      {isEditing && editingFile?.file && (
+      {isEditing && editingFile && (
         <Modal opened={true} onClose={() => setIsEditing(false)} title="Edit Image" size="xl">
-          <Group align="flex-start" gap="lg">
-            <Stack flex={2} gap="md" w="100%">
-              <ImageCanvas
-                file={editingFile.file}
-                brightness={brightness}
-                contrast={contrast}
-                saturation={saturation}
-                rotation={rotation}
-                flipX={flipX}
-                flipY={flipY}
-              />
+          {isLoadingFile || (!editingFile.file && !editingFileRef) ? (
+            <Stack align="center" gap="md" py="xl">
+              <Text>Loading image...</Text>
             </Stack>
+          ) : (
+            <Group align="flex-start" gap="lg">
+              <Stack flex={2} gap="md" w="100%">
+                <ImageCanvas
+                  file={editingFile.file || editingFileRef!}
+                  brightness={brightness}
+                  contrast={contrast}
+                  saturation={saturation}
+                  rotation={rotation}
+                  flipX={flipX}
+                  flipY={flipY}
+                />
+              </Stack>
             <Stack flex={1} gap="md" w="100%">
               <ImageToolbar
                 brightness={brightness}
@@ -508,6 +642,7 @@ export function ImageInputField<TValues extends FieldValues>(
               )}
             </Stack>
           </Group>
+          )}
         </Modal>
       )}
 

@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -177,9 +179,12 @@ export default function RNGForm<TValues extends FieldValues = any>({
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const submissionHandlerRef = useRef(new FormSubmissionHandler());
 
+  // Memoize defaultValues to prevent form reset on re-render
+  const memoizedDefaultValues = useMemo(() => defaultValues || {}, [defaultValues]);
+
   const form = useForm<TValues>({
     mode: 'onBlur',
-    defaultValues: (defaultValues || {}) as any,
+    defaultValues: memoizedDefaultValues as any,
     resolver: zodResolver(validationSchema),
   });
 
@@ -294,6 +299,7 @@ export default function RNGForm<TValues extends FieldValues = any>({
   useEffect(() => {
     return () => {
       // Cleanup submission handler on unmount
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       submissionHandlerRef.current.reset();
     };
   }, []);

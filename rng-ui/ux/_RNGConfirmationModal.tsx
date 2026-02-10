@@ -10,6 +10,7 @@ export interface RNGConfirmationModalProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   centered?: boolean;
   closeOnClickOutside?: boolean;
+  zIndex?: number;
 }
 
 /**
@@ -24,6 +25,7 @@ export function RNGConfirmationModal({
   size = 'sm',
   centered = true,
   closeOnClickOutside = false,
+  zIndex = 1001,
 }: RNGConfirmationModalProps) {
   const [opened, setOpened] = useState(false);
 
@@ -39,6 +41,7 @@ export function RNGConfirmationModal({
         size={size}
         centered={centered}
         closeOnClickOutside={closeOnClickOutside}
+        zIndex={zIndex}
       >
         {children(handleClose)}
       </Modal>
