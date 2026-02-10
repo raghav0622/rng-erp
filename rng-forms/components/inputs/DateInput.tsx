@@ -128,28 +128,14 @@ export function TimeInputField<TValues extends FieldValues>(
 
   const value = field.value == null || field.value === '' ? null : String(field.value);
 
-  const handleChange = (date: Date | null) => {
-    if (!date) {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const timeString = event.currentTarget.value;
+    if (!timeString) {
       field.onChange(null);
       return;
     }
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const seconds = withSeconds ? date.getSeconds() : 0;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const str = withSeconds
-      ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
-      : `${pad(hours)}:${pad(minutes)}`;
-    field.onChange(str);
+    field.onChange(timeString);
   };
-
-  const dateValue = value
-    ? (() => {
-        const [h, m, s] = value.split(':').map(Number);
-        const d = new Date(0, 0, 0, h ?? 0, m ?? 0, s ?? 0);
-        return isValid(d) ? d : null;
-      })()
-    : null;
 
   return (
     <TimeInput
@@ -160,9 +146,8 @@ export function TimeInputField<TValues extends FieldValues>(
       disabled={disabled}
       required={required}
       error={mergedError}
-      clearable={clearable !== false}
       withSeconds={withSeconds ?? false}
-      value={dateValue}
+      value={value ?? undefined}
       onChange={handleChange}
       onBlur={field.onBlur}
       ref={field.ref}

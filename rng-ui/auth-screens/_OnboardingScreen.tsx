@@ -12,7 +12,7 @@ import { RNGLoadingOverlay } from '@/rng-ui/ux';
 import { Text } from '@mantine/core';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { AuthScreen } from './AuthScreen';
+import { AuthScreen } from './_AuthScreen';
 
 export interface OnboardingScreenProps {
   /**

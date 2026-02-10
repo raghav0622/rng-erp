@@ -77,11 +77,14 @@ export interface RenderRNGFormResult<TValues> {
 }
 
 function createSubmitMock<TValues>(): (values: TValues) => void {
-  if (typeof vi !== 'undefined' && typeof (vi as any).fn === 'function') {
-    return (vi as any).fn() as (values: TValues) => void;
+  const g = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : {});
+  const vi = (g as any).vi;
+  const jest = (g as any).jest;
+  if (typeof vi !== 'undefined' && typeof vi.fn === 'function') {
+    return vi.fn() as (values: TValues) => void;
   }
-  if (typeof jest !== 'undefined' && typeof (jest as any).fn === 'function') {
-    return (jest as any).fn() as (values: TValues) => void;
+  if (typeof jest !== 'undefined' && typeof jest.fn === 'function') {
+    return jest.fn() as (values: TValues) => void;
   }
   return () => {};
 }

@@ -21,6 +21,7 @@ import {
   useFormContext,
   useWatch,
   type Control,
+  type FieldPath,
   type FieldValues,
 } from 'react-hook-form';
 import type {
@@ -115,16 +116,16 @@ export function SelectField<TValues extends FieldValues>(
   } = props;
   const form = useFormContext<TValues>();
   const getValues = form.getValues;
-  const watchNames = optionsDependencies?.length
-    ? (optionsDependencies as string[])
-    : undefined;
+  const watchNames: readonly FieldPath<TValues>[] = optionsDependencies?.length
+    ? (optionsDependencies as FieldPath<TValues>[])
+    : [];
   const watchValues = useWatch({ control, name: watchNames });
   const { field, fieldState } = useController({ name, control });
   const mergedError = error ?? fieldState.error?.message;
   const { data, loading } = useAsyncOptions(
     options,
     getValues,
-    watchNames ? watchValues : undefined,
+    watchNames.length ? watchValues : undefined,
   );
 
   if (multiple) {
@@ -338,16 +339,16 @@ export function AutocompleteField<TValues extends FieldValues>(
   } = props;
   const form = useFormContext<TValues>();
   const getValues = form.getValues;
-  const watchNames = optionsDependencies?.length
-    ? (optionsDependencies as string[])
-    : undefined;
+  const watchNames: readonly FieldPath<TValues>[] = optionsDependencies?.length
+    ? (optionsDependencies as FieldPath<TValues>[])
+    : [];
   const watchValues = useWatch({ control, name: watchNames });
   const { field, fieldState } = useController({ name, control });
   const mergedError = error ?? fieldState.error?.message;
   const { data, loading } = useAsyncOptions(
     options,
     getValues,
-    watchNames ? watchValues : undefined,
+    watchNames.length ? watchValues : undefined,
   );
 
   // Note: Mantine Autocomplete is single-value; `multiple` handled elsewhere if needed.
@@ -456,20 +457,32 @@ export function RatingField<TValues extends FieldValues>(
   const value = field.value != null ? Number(field.value) : 0;
 
   return (
-    <MantineRating
-      {...rest}
-      count={count}
-      value={value}
-      onChange={(v) => field.onChange(v)}
-      onBlur={field.onBlur}
-      ref={field.ref}
-      size="sm"
-      readOnly={disabled}
-      label={label}
-      description={description}
-      error={mergedError}
-      required={required}
-    />
+    <div>
+      {label && (
+        <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
+          {label}
+          {required && <span style={{ color: 'var(--mantine-color-red-6)' }}> *</span>}
+        </label>
+      )}
+      <MantineRating
+        {...rest}
+        count={count}
+        value={value}
+        onChange={(v) => field.onChange(v)}
+        onBlur={field.onBlur}
+        ref={field.ref}
+        size="sm"
+        readOnly={disabled}
+      />
+      {description && (
+        <div style={{ color: '#666', fontSize: '0.9rem', marginTop: 4 }}>{description}</div>
+      )}
+      {mergedError && (
+        <div role="alert" style={{ color: 'red', fontSize: '0.85rem', marginTop: 4 }}>
+          {mergedError}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -11,7 +11,7 @@ import { Anchor, Stack, Text } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { AuthScreen } from './AuthScreen';
+import { AuthScreen } from './_AuthScreen';
 
 export interface SignUpScreenProps {
   /**

@@ -374,7 +374,8 @@ export abstract class AbstractClientFirestoreRepository<
       const historyRef = this.getHistoryCollectionRef(documentId);
       const q = query(historyRef, orderBy('timestamp', 'desc'), limit(1));
       const snap = await getDocs(q);
-      if (snap.docs.length === 0) return;
+      const latestDoc = snap.docs[0];
+      if (!latestDoc) return;
       const payload = sanitizeForWrite({
         redoSnapshot: {
           ...result,
@@ -383,7 +384,7 @@ export abstract class AbstractClientFirestoreRepository<
             result.createdAt instanceof Date ? Timestamp.fromDate(result.createdAt) : result.createdAt,
         },
       });
-      await updateDoc(snap.docs[0].ref, payload);
+      await updateDoc(latestDoc.ref, payload);
     } catch (error) {
       if (this.config.logging) {
         globalLogger.warn('Failed to save redo snapshot', { error, documentId });
@@ -1644,8 +1645,15 @@ export abstract class AbstractClientFirestoreRepository<
           RepositoryErrorCode.FAILED_PRECONDITION,
         );
       }
+      const firstEntry = history[0];
+      if (!firstEntry) {
+        throw new RepositoryError(
+          'Cannot undo: no history available',
+          RepositoryErrorCode.FAILED_PRECONDITION,
+        );
+      }
       // With only a create entry there is no previous state to restore to
-      if (history.length === 1 && history[0].operation === 'create') {
+      if (history.length === 1 && firstEntry.operation === 'create') {
         throw new RepositoryError(
           'Cannot undo: insufficient history (only create snapshot)',
           RepositoryErrorCode.FAILED_PRECONDITION,
@@ -1656,7 +1664,7 @@ export abstract class AbstractClientFirestoreRepository<
       // history[0] = state before most recent mutation
       // Current state = after most recent mutation
       // To undo, restore to history[0]
-      const previousSnapshot = history[0].snapshot;
+      const previousSnapshot = firstEntry.snapshot;
 
       // Restore to previous state
       const updates: UpdateData<T> = {
@@ -1705,6 +1713,12 @@ export abstract class AbstractClientFirestoreRepository<
 
       // After undo we restored to history[0].snapshot; redo = restore to history[0].redoSnapshot
       const latestEntry = history[0];
+      if (!latestEntry) {
+        throw new RepositoryError(
+          'Cannot redo: insufficient history',
+          RepositoryErrorCode.FAILED_PRECONDITION,
+        );
+      }
       if (!latestEntry.redoSnapshot) {
         throw new RepositoryError(
           'Cannot redo: no redo state available (current state is already at the latest)',

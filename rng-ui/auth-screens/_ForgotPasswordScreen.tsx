@@ -10,7 +10,7 @@ import {
 import { Alert, Anchor, Button, Group, Stack, Text } from '@mantine/core';
 import { IconCheck, IconMail } from '@tabler/icons-react';
 import { useState } from 'react';
-import { AuthScreen } from './AuthScreen';
+import { AuthScreen } from './_AuthScreen';
 
 export interface ForgotPasswordScreenProps {
   /**

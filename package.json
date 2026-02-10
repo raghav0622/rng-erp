@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "vitest run --project unit",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration",
+    "test:integration": "vitest run --project unit rng-repository/tests/repository.test.ts",
     "test:watch": "vitest watch --project unit",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --project unit --coverage",

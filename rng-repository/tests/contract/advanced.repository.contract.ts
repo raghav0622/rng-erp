@@ -391,9 +391,11 @@ export function runAdvancedRepositoryContractTests(
 
         const history = await repo.getHistory!(created.id);
         expect(history.length).toBe(1);
-        expect(history[0].operation).toBe('create');
-        expect(history[0].snapshot.name).toBe('Test');
-        expect(history[0].snapshot.id).toBe(created.id);
+        const first = history[0];
+        expect(first).toBeDefined();
+        expect(first!.operation).toBe('create');
+        expect(first!.snapshot.name).toBe('Test');
+        expect(first!.snapshot.id).toBe(created.id);
       });
 
       it('should save history snapshot on update', async () => {
@@ -407,10 +409,14 @@ export function runAdvancedRepositoryContractTests(
 
         const history = await repo.getHistory!(created.id);
         expect(history.length).toBe(2);
-        expect(history[0].operation).toBe('update');
-        expect(history[0].snapshot.name).toBe('Original'); // State before update
-        expect(history[1].operation).toBe('create');
-        expect(history[1].snapshot.name).toBe('Original');
+        const latest = history[0];
+        const previous = history[1];
+        expect(latest).toBeDefined();
+        expect(previous).toBeDefined();
+        expect(latest!.operation).toBe('update');
+        expect(latest!.snapshot.name).toBe('Original'); // State before update
+        expect(previous!.operation).toBe('create');
+        expect(previous!.snapshot.name).toBe('Original');
       });
 
       it('should save history snapshot on delete', async () => {
@@ -425,8 +431,10 @@ export function runAdvancedRepositoryContractTests(
 
         const history = await repo.getHistory!(created.id);
         expect(history.length).toBe(2);
-        expect(history[0].operation).toBe('softDelete');
-        expect(history[0].snapshot.name).toBe('Test');
+        const first = history[0];
+        expect(first).toBeDefined();
+        expect(first!.operation).toBe('softDelete');
+        expect(first!.snapshot.name).toBe('Test');
       });
 
       it('should undo last change', async () => {
@@ -510,8 +518,10 @@ export function runAdvancedRepositoryContractTests(
         );
 
         const history = await repo.getHistory!(created.id);
-        expect(history[0].actorId).toBe('user123');
-        expect(history[0].reason).toBe('Initial creation');
+        const first = history[0];
+        expect(first).toBeDefined();
+        expect(first!.actorId).toBe('user123');
+        expect(first!.reason).toBe('Initial creation');
       });
 
       it('should handle history retrieval with custom limit', async () => {

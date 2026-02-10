@@ -11,7 +11,7 @@ import { Anchor, Divider, Group } from '@mantine/core';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { AuthScreen } from './AuthScreen';
+import { AuthScreen } from './_AuthScreen';
 
 export interface SignInScreenProps {
   /**
