@@ -1,4 +1,4 @@
-import { globalLogger } from '@/lib';
+import { globalLogger } from './logger';
 import { EncryptionStrategy } from '../types';
 
 export function applyEncryption(data: any, fields: string[], strategy: EncryptionStrategy): any {

@@ -4,6 +4,9 @@ import { useMemo } from 'react';
 import { useFormContext, useWatch, type FieldValues } from 'react-hook-form';
 import type { RNGFormItem } from '../types/core';
 
+/**
+ * Resolves dependency paths (with optional !root prefix) and scope prefix into field names to watch.
+ */
 function buildDependencyNames(dependencies: string[], scopePrefix: string): string[] {
   const set = new Set<string>();
   dependencies.forEach((dep) => {
@@ -17,6 +20,11 @@ function buildDependencyNames(dependencies: string[], scopePrefix: string): stri
   return Array.from(set);
 }
 
+/**
+ * Resolves visibility (renderLogic) and dynamic props (propsLogic) for a form item.
+ * When the item has no `dependencies`, the hook subscribes to the entire form so that
+ * renderLogic/propsLogic can read any field; in large forms this may increase re-renders.
+ */
 export function useFieldLogic<TValues extends FieldValues = FieldValues>(
   item: RNGFormItem<TValues>,
 ) {
@@ -34,7 +42,7 @@ export function useFieldLogic<TValues extends FieldValues = FieldValues>(
 
   const namesToWatch = buildDependencyNames(dependencies, scopePrefix);
 
-  // Watch declared dependencies (raw + scoped variants) to minimize re-renders
+  // Watch declared dependencies only when present; otherwise subscribe to whole form (for renderLogic/propsLogic)
   useWatch<TValues>({
     control: form.control,
     name: namesToWatch.length ? (namesToWatch as any) : undefined,

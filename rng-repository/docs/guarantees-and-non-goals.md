@@ -1,6 +1,6 @@
 # Guarantees and Non-Goals
 
-This document outlines the architectural boundaries of the repository.
+This document outlines the architectural boundaries of the repository. **v2.x is frozen:** public API and behavior are locked; only critical fixes are allowed.
 
 ## ✅ Guarantees
 

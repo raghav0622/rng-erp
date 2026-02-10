@@ -47,7 +47,7 @@ export const fieldTemplates = {
     type: 'group',
     children: [
       {
-        type: 'email' as any,
+        type: 'email',
         name: 'email' as any,
         label: 'Email Address',
         required: true,
@@ -59,7 +59,7 @@ export const fieldTemplates = {
         },
       } as any,
       {
-        type: 'tel' as any,
+        type: 'tel',
         name: 'phone' as any,
         label: 'Phone Number',
         placeholder: '(555) 123-4567',
@@ -184,19 +184,19 @@ export const fieldTemplates = {
         placeholder: 'https://twitter.com/username',
       } as any,
       {
-        type: 'url' as any,
+        type: 'url',
         name: 'social.linkedin' as any,
         label: 'LinkedIn',
         placeholder: 'https://linkedin.com/in/username',
       } as any,
       {
-        type: 'url' as any,
+        type: 'url',
         name: 'social.github' as any,
         label: 'GitHub',
         placeholder: 'https://github.com/username',
       } as any,
       {
-        type: 'url' as any,
+        type: 'url',
         name: 'social.website' as any,
         label: 'Website',
         placeholder: 'https://example.com',
@@ -375,23 +375,157 @@ export const fieldTemplates = {
   /**
    * Time range (hours and minutes)
    */
-  timeRange: (startName: string = 'startTime', endName: string = 'endTime'): any => ({
+  timeRange: (
+    startName: string = 'startTime',
+    endName: string = 'endTime',
+    startLabel: string = 'Start Time',
+    endLabel: string = 'End Time',
+  ): any => ({
     type: 'group',
     children: [
       {
         type: 'time',
         name: startName as any,
-        label: 'Start Time',
+        label: startLabel,
         required: true,
       } as any,
       {
         type: 'time',
         name: endName as any,
-        label: 'End Time',
+        label: endLabel,
         required: true,
       } as any,
     ],
   }),
+
+  /**
+   * Cascading (dependent) selects: parent value drives child options.
+   * Parent options: static array or () => Promise<Option[]>.
+   * getChildOptions: (parentValue: string | undefined) => Promise<Option[]>.
+   * Child has dependencies and optionsDependencies on parent so it re-renders and re-fetches when parent changes.
+   */
+  cascadingSelect: (
+    parentName: string,
+    childName: string,
+    parentLabel: string = 'Parent',
+    childLabel: string = 'Child',
+    parentOptions:
+      | string[]
+      | { label: string; value: string }[]
+      | (() => Promise<{ label: string; value: string }[]>),
+    getChildOptions: (parentValue: string | undefined) => Promise<{ label: string; value: string }[]>,
+  ): any => ({
+    type: 'group',
+    children: [
+      {
+        type: 'select',
+        name: parentName as any,
+        label: parentLabel,
+        options: parentOptions,
+      } as any,
+      {
+        type: 'select',
+        name: childName as any,
+        label: childLabel,
+        dependencies: [parentName],
+        options: (getValues: () => any) => getChildOptions(getValues()?.[parentName]),
+        optionsDependencies: [parentName],
+      } as any,
+    ],
+  }),
+
+  /**
+   * Title + optional "Edit slug manually" checkbox + slug. Use useSlugFromTitle(titlePath, slugPath, overridePath) in a child of RNGForm to sync slug from title when override is unchecked.
+   */
+  slugFromTitle: (
+    titleName: string = 'title',
+    slugName: string = 'slug',
+    overrideName: string = 'overrideSlug',
+    titleLabel: string = 'Title',
+    slugLabel: string = 'Slug',
+    overrideLabel: string = 'Edit slug manually',
+  ): any => ({
+    type: 'group',
+    children: [
+      { type: 'text', name: titleName as any, label: titleLabel, required: true } as any,
+      {
+        type: 'checkbox',
+        name: overrideName as any,
+        label: overrideLabel,
+      } as any,
+      {
+        type: 'text',
+        name: slugName as any,
+        label: slugLabel,
+        dependencies: [titleName, overrideName],
+        propsLogic: (_scope: any, root: any) => ({
+          disabled: root[overrideName] !== true,
+        }),
+      } as any,
+    ],
+  }),
+
+  /**
+   * Country code select + phone (tel) input. Pass options for country codes (e.g. [{ value: '+91', label: 'India +91' }, { value: '+1', label: 'US +1' }]).
+   */
+  phoneWithCountryCode: (
+    phoneName: string = 'phone',
+    countryCodeName: string = 'countryCode',
+    phoneLabel: string = 'Phone',
+    countryCodeLabel: string = 'Country',
+    countryCodeOptions: { label: string; value: string }[] = [
+      { value: '+91', label: 'India +91' },
+      { value: '+1', label: 'US +1' },
+      { value: '+44', label: 'UK +44' },
+    ],
+  ): any => ({
+    type: 'group',
+    children: [
+      {
+        type: 'select',
+        name: countryCodeName as any,
+        label: countryCodeLabel,
+        options: countryCodeOptions,
+      } as any,
+      {
+        type: 'tel',
+        name: phoneName as any,
+        label: phoneLabel,
+        placeholder: 'Number without country code',
+      } as any,
+    ],
+  }),
+
+  /**
+   * Single select/autocomplete with async options. Options load via the provided function (loading state shown by the component).
+   */
+  asyncSelect: (
+    name: string,
+    fetchOptions: () => Promise<{ label: string; value: string }[]>,
+    label?: string,
+    placeholder?: string,
+    searchable: boolean = true,
+  ): any => ({
+    type: 'select',
+    name: name as any,
+    label: label ?? name,
+    placeholder: placeholder ?? 'Loading…',
+    options: fetchOptions,
+    searchable,
+  } as any),
+
+  asyncAutocomplete: (
+    name: string,
+    fetchOptions: () => Promise<{ label: string; value: string }[]>,
+    label?: string,
+    placeholder?: string,
+  ): any => ({
+    type: 'autocomplete',
+    name: name as any,
+    label: label ?? name,
+    placeholder: placeholder ?? 'Loading…',
+    options: fetchOptions,
+  } as any),
 };
 
 /**

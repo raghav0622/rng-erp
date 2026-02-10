@@ -14,12 +14,15 @@ import { useRef } from 'react';
 import { useController, type Control, type FieldValues } from 'react-hook-form';
 import type {
   ColorInputItem,
+  EmailInputItem,
   HiddenInputItem,
   MaskInputItem,
   NumberInputItem,
   OTPInputItem,
   PasswordInputItem,
+  TelInputItem,
   TextInputItem,
+  UrlInputItem,
 } from '../../types/core';
 
 interface BaseFieldProps<TValues extends FieldValues> {
@@ -83,6 +86,138 @@ export function TextInputField<TValues extends FieldValues>(
     <MantineTextInput
       {...field}
       {...rest}
+      value={safeValue}
+      label={label}
+      description={descriptionWithCounter}
+      placeholder={placeholder}
+      disabled={disabled}
+      required={required}
+      maxLength={maxLength}
+      error={mergedError}
+      autoFocus={autoFocus}
+    />
+  );
+}
+
+export function EmailInputField<TValues extends FieldValues>(
+  props: EmailInputItem<TValues> & BaseFieldProps<TValues>,
+) {
+  const {
+    control,
+    name,
+    label,
+    description,
+    placeholder,
+    disabled,
+    required,
+    maxLength,
+    autoFocus,
+    error,
+    ...rest
+  } = props;
+  const { field, fieldState } = useController({ name, control });
+  const safeValue = field.value ?? '';
+  const mergedError = error ?? fieldState.error?.message;
+  const currentLength = typeof field.value === 'string' ? field.value.length : 0;
+  const showCounter = maxLength !== undefined && maxLength > 0;
+  const descriptionWithCounter = showCounter
+    ? `${description || ''}${description ? ' | ' : ''}${currentLength}/${maxLength}`
+    : description;
+
+  return (
+    <MantineTextInput
+      {...field}
+      {...rest}
+      type="email"
+      inputMode="email"
+      value={safeValue}
+      label={label}
+      description={descriptionWithCounter}
+      placeholder={placeholder}
+      disabled={disabled}
+      required={required}
+      maxLength={maxLength}
+      error={mergedError}
+      autoFocus={autoFocus}
+    />
+  );
+}
+
+export function TelInputField<TValues extends FieldValues>(
+  props: TelInputItem<TValues> & BaseFieldProps<TValues>,
+) {
+  const {
+    control,
+    name,
+    label,
+    description,
+    placeholder,
+    disabled,
+    required,
+    maxLength,
+    autoFocus,
+    error,
+    ...rest
+  } = props;
+  const { field, fieldState } = useController({ name, control });
+  const safeValue = field.value ?? '';
+  const mergedError = error ?? fieldState.error?.message;
+  const currentLength = typeof field.value === 'string' ? field.value.length : 0;
+  const showCounter = maxLength !== undefined && maxLength > 0;
+  const descriptionWithCounter = showCounter
+    ? `${description || ''}${description ? ' | ' : ''}${currentLength}/${maxLength}`
+    : description;
+
+  return (
+    <MantineTextInput
+      {...field}
+      {...rest}
+      type="tel"
+      inputMode="tel"
+      value={safeValue}
+      label={label}
+      description={descriptionWithCounter}
+      placeholder={placeholder}
+      disabled={disabled}
+      required={required}
+      maxLength={maxLength}
+      error={mergedError}
+      autoFocus={autoFocus}
+    />
+  );
+}
+
+export function UrlInputField<TValues extends FieldValues>(
+  props: UrlInputItem<TValues> & BaseFieldProps<TValues>,
+) {
+  const {
+    control,
+    name,
+    label,
+    description,
+    placeholder,
+    disabled,
+    required,
+    maxLength,
+    autoFocus,
+    error,
+    ...rest
+  } = props;
+  const { field, fieldState } = useController({ name, control });
+  const safeValue = field.value ?? '';
+  const mergedError = error ?? fieldState.error?.message;
+  const currentLength = typeof field.value === 'string' ? field.value.length : 0;
+  const showCounter = maxLength !== undefined && maxLength > 0;
+  const descriptionWithCounter = showCounter
+    ? `${description || ''}${description ? ' | ' : ''}${currentLength}/${maxLength}`
+    : description;
+
+  return (
+    <MantineTextInput
+      {...field}
+      {...rest}
+      type="url"
+      inputMode="url"
       value={safeValue}
       label={label}
       description={descriptionWithCounter}

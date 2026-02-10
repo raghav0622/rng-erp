@@ -3,9 +3,12 @@
 import {
   Loader,
   Autocomplete as MantineAutocomplete,
+  Button,
   Checkbox as MantineCheckbox,
+  Group,
   MultiSelect as MantineMultiSelect,
   RangeSlider as MantineRangeSlider,
+  Rating as MantineRating,
   Select as MantineSelect,
   Slider as MantineSlider,
   Switch as MantineSwitch,
@@ -13,16 +16,24 @@ import {
   SegmentedControl,
 } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
-import { useController, type Control, type FieldValues } from 'react-hook-form';
+import {
+  useController,
+  useFormContext,
+  useWatch,
+  type Control,
+  type FieldValues,
+} from 'react-hook-form';
 import type {
   AutocompleteInputItem,
   CheckboxInputItem,
   RadioInputItem,
   RangeSliderInputItem,
+  RatingInputItem,
   SegmentedInputItem,
   SelectInputItem,
   SliderInputItem,
   SwitchInputItem,
+  ToggleGroupInputItem,
 } from '../../types/core';
 
 interface BaseFieldProps<TValues extends FieldValues> {
@@ -32,9 +43,13 @@ interface BaseFieldProps<TValues extends FieldValues> {
 
 type Option = { label: string; value: string };
 
-type OptionsSource = string[] | Option[] | (() => Promise<Option[]>);
+type OptionsSource =
+  | string[]
+  | Option[]
+  | (() => Promise<Option[]>)
+  | ((getValues: () => any) => Promise<Option[]>);
 
-const normalizeOptions = (options: OptionsSource): Option[] => {
+const normalizeOptions = (options: Option[] | string[]): Option[] => {
   if (Array.isArray(options)) {
     if (options.length === 0) return [];
     if (typeof options[0] === 'string') {
@@ -45,28 +60,36 @@ const normalizeOptions = (options: OptionsSource): Option[] => {
   return [];
 };
 
-function useAsyncOptions(source?: OptionsSource) {
+function useAsyncOptions(
+  source?: OptionsSource,
+  getValues?: () => any,
+  watchValues?: unknown,
+) {
+  const isFunction = typeof source === 'function';
+  const isGetValuesOption = isFunction && source.length === 1;
+
   const [data, setData] = useState<Option[]>(
     source && Array.isArray(source) ? normalizeOptions(source) : [],
   );
-  const [loading, setLoading] = useState(() => typeof source === 'function');
+  const [loading, setLoading] = useState(() => isFunction);
 
   useEffect(() => {
-    if (typeof source === 'function') {
-      let active = true;
-      source()
-        .then((res) => {
-          if (active) setData(normalizeOptions(res));
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-      return () => {
-        active = false;
-      };
-    }
-    return undefined;
-  }, [source]);
+    if (typeof source !== 'function') return undefined;
+    let active = true;
+    const promise = isGetValuesOption && getValues
+      ? (source as (getValues: () => any) => Promise<Option[]>)(getValues)
+      : (source as () => Promise<Option[]>)();
+    promise
+      .then((res) => {
+        if (active) setData(normalizeOptions(res));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [source, getValues, isGetValuesOption, watchValues]);
 
   return { data, loading };
 }
@@ -83,15 +106,26 @@ export function SelectField<TValues extends FieldValues>(
     disabled,
     required,
     options,
+    optionsDependencies,
     searchable,
     clearable,
     multiple,
     error,
     ...rest
   } = props;
+  const form = useFormContext<TValues>();
+  const getValues = form.getValues;
+  const watchNames = optionsDependencies?.length
+    ? (optionsDependencies as string[])
+    : undefined;
+  const watchValues = useWatch({ control, name: watchNames });
   const { field, fieldState } = useController({ name, control });
   const mergedError = error ?? fieldState.error?.message;
-  const { data, loading } = useAsyncOptions(options);
+  const { data, loading } = useAsyncOptions(
+    options,
+    getValues,
+    watchNames ? watchValues : undefined,
+  );
 
   if (multiple) {
     return (
@@ -298,12 +332,23 @@ export function AutocompleteField<TValues extends FieldValues>(
     disabled,
     required,
     options,
+    optionsDependencies,
     error,
     ...rest
   } = props;
+  const form = useFormContext<TValues>();
+  const getValues = form.getValues;
+  const watchNames = optionsDependencies?.length
+    ? (optionsDependencies as string[])
+    : undefined;
+  const watchValues = useWatch({ control, name: watchNames });
   const { field, fieldState } = useController({ name, control });
   const mergedError = error ?? fieldState.error?.message;
-  const { data, loading } = useAsyncOptions(options);
+  const { data, loading } = useAsyncOptions(
+    options,
+    getValues,
+    watchNames ? watchValues : undefined,
+  );
 
   // Note: Mantine Autocomplete is single-value; `multiple` handled elsewhere if needed.
   return (
@@ -395,6 +440,110 @@ export function RangeSliderField<TValues extends FieldValues>(
       )}
       {mergedError && (
         <div role="alert" style={{ color: 'red', fontSize: '0.85rem', marginTop: 4 }}>
+          {mergedError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function RatingField<TValues extends FieldValues>(
+  props: RatingInputItem<TValues> & BaseFieldProps<TValues>,
+) {
+  const { control, name, label, description, disabled, required, count = 5, error, ...rest } = props;
+  const { field, fieldState } = useController({ name, control });
+  const mergedError = error ?? fieldState.error?.message;
+  const value = field.value != null ? Number(field.value) : 0;
+
+  return (
+    <MantineRating
+      {...rest}
+      count={count}
+      value={value}
+      onChange={(v) => field.onChange(v)}
+      onBlur={field.onBlur}
+      ref={field.ref}
+      size="sm"
+      readOnly={disabled}
+      label={label}
+      description={description}
+      error={mergedError}
+      required={required}
+    />
+  );
+}
+
+function normalizeToggleOptions(
+  options: string[] | { label: string; value: string }[],
+): { label: string; value: string }[] {
+  if (options.length === 0) return [];
+  if (typeof options[0] === 'string') return (options as string[]).map((v) => ({ label: v, value: v }));
+  return options as { label: string; value: string }[];
+}
+
+export function ToggleGroupField<TValues extends FieldValues>(
+  props: ToggleGroupInputItem<TValues> & BaseFieldProps<TValues>,
+) {
+  const {
+    control,
+    name,
+    label,
+    description,
+    disabled,
+    required,
+    options,
+    multiple = true,
+    error,
+    ...rest
+  } = props;
+  const { field, fieldState } = useController({ name, control });
+  const mergedError = error ?? fieldState.error?.message;
+  const value: string[] = Array.isArray(field.value) ? field.value : field.value != null ? [String(field.value)] : [];
+  const data = useMemo(() => normalizeToggleOptions(options), [options]);
+
+  const toggle = (optValue: string) => {
+    if (multiple) {
+      const set = new Set(value);
+      if (set.has(optValue)) set.delete(optValue);
+      else set.add(optValue);
+      field.onChange(Array.from(set));
+    } else {
+      field.onChange(field.value === optValue ? null : optValue);
+    }
+  };
+
+  return (
+    <div>
+      {label && (
+        <div style={{ marginBottom: 6, fontWeight: 500 }}>
+          {label}
+          {required && <span style={{ color: 'var(--mantine-color-red-6)' }}> *</span>}
+        </div>
+      )}
+      <Group gap="xs" wrap="wrap">
+        {data.map((opt) => {
+          const selected = multiple ? value.includes(opt.value) : value[0] === opt.value;
+          return (
+            <Button
+              key={opt.value}
+              type="button"
+              variant={selected ? 'filled' : 'light'}
+              size="xs"
+              onClick={() => toggle(opt.value)}
+              disabled={disabled}
+            >
+              {opt.label}
+            </Button>
+          );
+        })}
+      </Group>
+      {description && (
+        <div style={{ color: 'var(--mantine-color-dimmed)', fontSize: '0.85rem', marginTop: 4 }}>
+          {description}
+        </div>
+      )}
+      {mergedError && (
+        <div role="alert" style={{ color: 'var(--mantine-color-red-6)', fontSize: '0.85rem', marginTop: 4 }}>
           {mergedError}
         </div>
       )}

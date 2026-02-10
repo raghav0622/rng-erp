@@ -1,6 +1,13 @@
 {
   "indexes": [
     {
+      "collectionGroup": "snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "app-users",
       "queryScope": "COLLECTION",
       "fields": [

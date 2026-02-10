@@ -157,6 +157,8 @@ export interface BaseFieldProps<TValues = any> {
   readOnly?: boolean;
   id?: string;
   autoFocus?: boolean;
+  /** Optional help text shown in a tooltip next to the label (?) */
+  help?: string;
 
   /**
    * Fields that this field depends on for conditional logic.
@@ -256,6 +258,24 @@ export interface MaskInputItem<TValues = any> extends BaseFieldProps<TValues> {
   mask: string;
 }
 
+export interface EmailInputItem<TValues = any> extends BaseFieldProps<TValues> {
+  type: 'email';
+  maxLength?: number;
+  minLength?: number;
+}
+
+export interface TelInputItem<TValues = any> extends BaseFieldProps<TValues> {
+  type: 'tel';
+  maxLength?: number;
+  minLength?: number;
+}
+
+export interface UrlInputItem<TValues = any> extends BaseFieldProps<TValues> {
+  type: 'url';
+  maxLength?: number;
+  minLength?: number;
+}
+
 /**
  * Selection inputs
  */
@@ -264,7 +284,12 @@ export interface SelectInputItem<TValues = any> extends BaseFieldProps<TValues> 
   options:
     | string[]
     | { label: string; value: string }[]
-    | (() => Promise<{ label: string; value: string }[]>);
+    | (() => Promise<{ label: string; value: string }[]>)
+    | ((getValues: () => TValues) => Promise<{ label: string; value: string }[]>);
+  /**
+   * When options is (getValues) => Promise, list field paths to watch so options re-fetch when they change (e.g. parent in cascading select).
+   */
+  optionsDependencies?: Path<TValues>[];
   multiple?: boolean;
   searchable?: boolean;
   clearable?: boolean;
@@ -298,7 +323,12 @@ export interface AutocompleteInputItem<TValues = any> extends BaseFieldProps<TVa
   options:
     | string[]
     | { label: string; value: string }[]
-    | (() => Promise<{ label: string; value: string }[]>);
+    | (() => Promise<{ label: string; value: string }[]>)
+    | ((getValues: () => TValues) => Promise<{ label: string; value: string }[]>);
+  /**
+   * When options is (getValues) => Promise, list field paths to watch so options re-fetch when they change.
+   */
+  optionsDependencies?: Path<TValues>[];
   multiple?: boolean;
 }
 
@@ -327,6 +357,19 @@ export interface RangeSliderInputItem<TValues = any> extends BaseFieldProps<TVal
   marks?: { value: number; label?: string }[];
 }
 
+export interface RatingInputItem<TValues = any> extends BaseFieldProps<TValues> {
+  type: 'rating';
+  /** Number of stars (default 5) */
+  count?: number;
+}
+
+export interface ToggleGroupInputItem<TValues = any> extends BaseFieldProps<TValues> {
+  type: 'toggle-group';
+  options: string[] | { label: string; value: string }[];
+  /** Allow multiple selections (default true for toggle-group) */
+  multiple?: boolean;
+}
+
 /**
  * Date inputs
  */
@@ -341,6 +384,13 @@ export interface DateRangeInputItem<TValues = any> extends BaseFieldProps<TValue
   type: 'date-range';
   minDate?: Date;
   maxDate?: Date;
+  clearable?: boolean;
+}
+
+export interface TimeInputItem<TValues = any> extends BaseFieldProps<TValues> {
+  type: 'time';
+  /** Include seconds in value (HH:mm:ss). Default false (HH:mm). */
+  withSeconds?: boolean;
   clearable?: boolean;
 }
 
@@ -486,6 +536,17 @@ export interface DataGridItem<TValues = any> {
 }
 
 /**
+ * Review summary: read-only list of form values. Use as the last wizard step before submit.
+ */
+export interface ReviewSummaryItem<TValues = any> {
+  type: 'review-summary';
+  /** Optional section title (e.g. "Review your answers") */
+  title?: string;
+  /** Fields to display: path (form path) and label (display label) */
+  fields: { path: Path<TValues>; label: string }[];
+}
+
+/**
  * Main discriminated union for all form items
  */
 export type RNGFormItem<TValues = any> =
@@ -497,6 +558,9 @@ export type RNGFormItem<TValues = any> =
   | ColorInputItem<TValues>
   | OTPInputItem<TValues>
   | MaskInputItem<TValues>
+  | EmailInputItem<TValues>
+  | TelInputItem<TValues>
+  | UrlInputItem<TValues>
   // Selection
   | SelectInputItem<TValues>
   | CheckboxInputItem<TValues>
@@ -507,9 +571,12 @@ export type RNGFormItem<TValues = any> =
   | TaxonomyInputItem<TValues>
   | SliderInputItem<TValues>
   | RangeSliderInputItem<TValues>
-  // Date
+  | RatingInputItem<TValues>
+  | ToggleGroupInputItem<TValues>
+  // Date & time
   | DateInputItem<TValues>
   | DateRangeInputItem<TValues>
+  | TimeInputItem<TValues>
   // Rich content
   | RichTextInputItem<TValues>
   | SignatureInputItem<TValues>
@@ -526,7 +593,8 @@ export type RNGFormItem<TValues = any> =
   | GroupItem<TValues>
   | WizardItem<TValues>
   | ArrayFieldItem<TValues>
-  | DataGridItem<TValues>;
+  | DataGridItem<TValues>
+  | ReviewSummaryItem<TValues>;
 
 /**
  * Form schema structure

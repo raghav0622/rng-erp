@@ -18,6 +18,7 @@ export { useDebounce, useDebouncedCallback } from './hooks/useDebounce';
 export { useFieldLogic } from './hooks/useFieldLogic';
 export { useFormHistory } from './hooks/useFormHistory';
 export { useFormPersistence } from './hooks/useFormPersistence';
+export { useSlugFromTitle } from './hooks/useSlugFromTitle';
 
 // Context
 export { RNGContextProvider, useRNGContext } from './core/FormContext';
@@ -36,6 +37,7 @@ export { default as DataGridEnhanced } from './components/special/DataGridEnhanc
 // Types
 export * from './types/core';
 export * from './types/values';
+export * from './types/errors';
 
 // DSL Factory
 export { createFormBuilder } from './dsl/factory';
@@ -43,3 +45,11 @@ export { createFieldTemplate, fieldTemplates } from './dsl/templates';
 
 // Registry (for advanced usage)
 export { COMPONENT_REGISTRY } from './core/Registry';
+
+// Test utilities (for DOM tests; use with vitest jsdom or jest)
+export {
+  getFieldLabels,
+  renderRNGForm,
+  type RenderRNGFormOptions,
+  type RenderRNGFormResult,
+} from './test-utils';

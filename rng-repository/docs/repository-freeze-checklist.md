@@ -1,15 +1,14 @@
-# Repository Freeze Checklist
+# Repository Freeze Checklist (v2 — LOCKED)
 
-Use this checklist to validate any changes to the repository.
+Use this checklist for **any** change to rng-repository. v2.x is frozen: only critical bug fixes and contract-aligned behavior changes are allowed. New features or breaking changes require v3.
 
 ## API Stability
 
-- [ ] **Public API Unchanged**: Verify `IRepository<T>` has not been modified.
-- [ ] **No New Public Methods**: Ensure no new methods are exposed on the abstract class.
-- [ ] **Semver Compliance**: Any behavioral change requires a version bump.
-- [ ] **No New Public Exports**: Verify `index.ts` or `types.ts` do not export new symbols.
-- [ ] **No Error Code Changes**: Confirm `RepositoryErrorCode` enum is unchanged.
-- [ ] **No Retry Semantics Changes**: Verify retry logic and default backoff remain stable.
+- [ ] **Public API Unchanged**: Verify `IRepository<T>` and exported types have not been modified.
+- [ ] **No New Public Methods**: No new methods on `IRepository` or `AbstractClientFirestoreRepository`.
+- [ ] **No New Public Exports**: `index.ts` must not export new symbols. No new types in the public list.
+- [ ] **No Error Code Changes**: `RepositoryErrorCode` enum is frozen in v2.x.
+- [ ] **No Retry Semantics Changes**: Retry logic and default backoff remain stable.
 
 ## Safety
 

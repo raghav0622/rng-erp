@@ -1,9 +1,9 @@
 'use client';
 
-import { DatePickerInput, DateInput as MantineDateInput } from '@mantine/dates';
+import { DatePickerInput, DateInput as MantineDateInput, TimeInput } from '@mantine/dates';
 import { isValid, parseISO } from 'date-fns';
 import { useController, type Control, type FieldValues } from 'react-hook-form';
-import type { DateInputItem, DateRangeInputItem } from '../../types/core';
+import type { DateInputItem, DateRangeInputItem, TimeInputItem } from '../../types/core';
 
 interface BaseFieldProps<TValues extends FieldValues> {
   control: Control<TValues>;
@@ -101,6 +101,71 @@ export function DateInputField<TValues extends FieldValues>(
       value={localValue}
       onChange={handleChange as any}
       onBlur={field.onBlur}
+    />
+  );
+}
+
+export function TimeInputField<TValues extends FieldValues>(
+  props: TimeInputItem<TValues> & BaseFieldProps<TValues>,
+) {
+  const {
+    control,
+    name,
+    label,
+    description,
+    placeholder,
+    disabled,
+    required,
+    error,
+    clearable,
+    withSeconds,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    type: _,
+    ...rest
+  } = props;
+  const { field, fieldState } = useController({ name, control });
+  const mergedError = error ?? fieldState.error?.message;
+
+  const value = field.value == null || field.value === '' ? null : String(field.value);
+
+  const handleChange = (date: Date | null) => {
+    if (!date) {
+      field.onChange(null);
+      return;
+    }
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const seconds = withSeconds ? date.getSeconds() : 0;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const str = withSeconds
+      ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+      : `${pad(hours)}:${pad(minutes)}`;
+    field.onChange(str);
+  };
+
+  const dateValue = value
+    ? (() => {
+        const [h, m, s] = value.split(':').map(Number);
+        const d = new Date(0, 0, 0, h ?? 0, m ?? 0, s ?? 0);
+        return isValid(d) ? d : null;
+      })()
+    : null;
+
+  return (
+    <TimeInput
+      {...rest}
+      label={label}
+      description={description}
+      placeholder={placeholder ?? (withSeconds ? 'HH:mm:ss' : 'HH:mm')}
+      disabled={disabled}
+      required={required}
+      error={mergedError}
+      clearable={clearable !== false}
+      withSeconds={withSeconds ?? false}
+      value={dateValue}
+      onChange={handleChange}
+      onBlur={field.onBlur}
+      ref={field.ref}
     />
   );
 }

@@ -32,6 +32,9 @@ export const FIELD_CONFIG: Record<FieldType, FieldConfig> = {
   color: { hasInternalLabel: false },
   otp: { hasInternalLabel: false },
   mask: { hasInternalLabel: false },
+  email: { hasInternalLabel: false },
+  tel: { hasInternalLabel: false },
+  url: { hasInternalLabel: false },
   hidden: { hasInternalLabel: true }, // Hidden doesn't need wrapper label
 
   // Selection: FieldWrapper renders label
@@ -44,10 +47,13 @@ export const FIELD_CONFIG: Record<FieldType, FieldConfig> = {
   autocomplete: { hasInternalLabel: false },
   slider: { hasInternalLabel: false },
   'range-slider': { hasInternalLabel: false },
+  rating: { hasInternalLabel: false },
+  'toggle-group': { hasInternalLabel: false },
 
-  // Date: FieldWrapper renders label
+  // Date & time: FieldWrapper renders label
   date: { hasInternalLabel: false },
   'date-range': { hasInternalLabel: false },
+  time: { hasInternalLabel: false },
 
   // Rich content: FieldWrapper renders label
   'rich-text': { hasInternalLabel: false },
@@ -68,6 +74,7 @@ export const FIELD_CONFIG: Record<FieldType, FieldConfig> = {
   group: { hasInternalLabel: true },
   array: { hasInternalLabel: true },
   'data-grid': { hasInternalLabel: true },
+  'review-summary': { hasInternalLabel: true },
 } as Record<FieldType, FieldConfig>;
 
 /**

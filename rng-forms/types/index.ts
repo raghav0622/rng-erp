@@ -13,9 +13,11 @@ export type {
   // Formatting
   CommonUnit,
   DataGridItem,
-  // Date inputs
+  // Date & time inputs
   DateInputItem,
   DateRangeInputItem,
+  EmailInputItem,
+  TimeInputItem,
   // File inputs
   FileInputItem,
   // Special inputs
@@ -34,12 +36,14 @@ export type {
   PDFInputItem,
   RadioInputItem,
   RangeSliderInputItem,
+  RatingInputItem,
   // Rich content
   RichTextInputItem,
   // Core types
   RNGFormItem,
   RNGFormSchema,
   // Layouts
+  ReviewSummaryItem,
   SectionItem,
   SegmentedInputItem,
   // Selection inputs
@@ -47,9 +51,12 @@ export type {
   SignatureInputItem,
   SliderInputItem,
   SwitchInputItem,
+  TelInputItem,
   TaxonomyInputItem,
   // Text inputs
   TextInputItem,
+  ToggleGroupInputItem,
+  UrlInputItem,
   WizardItem,
 } from './core';
 

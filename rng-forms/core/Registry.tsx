@@ -7,6 +7,9 @@ const LazyDateInput = React.lazy(() =>
 const LazyDateRangeInput = React.lazy(() =>
   import('../components/inputs/DateInput').then((m) => ({ default: m.DateRangeInputField })),
 );
+const LazyTimeInput = React.lazy(() =>
+  import('../components/inputs/DateInput').then((m) => ({ default: m.TimeInputField })),
+);
 const LazySignature = React.lazy(() => import('../components/special/Signature'));
 const LazyMap = React.lazy(() => import('../components/special/Map'));
 const LazyWizard = React.lazy(() => import('../components/layouts/WizardLayout'));
@@ -16,11 +19,26 @@ const LazySlider = React.lazy(() =>
 const LazyRangeSlider = React.lazy(() =>
   import('../components/inputs/SelectionInputs').then((m) => ({ default: m.RangeSliderField })),
 );
+const LazyRating = React.lazy(() =>
+  import('../components/inputs/SelectionInputs').then((m) => ({ default: m.RatingField })),
+);
+const LazyToggleGroup = React.lazy(() =>
+  import('../components/inputs/SelectionInputs').then((m) => ({ default: m.ToggleGroupField })),
+);
 const LazyHidden = React.lazy(() =>
   import('../components/inputs/StandardInputs').then((m) => ({ default: m.HiddenInputField })),
 );
 const LazyMask = React.lazy(() =>
   import('../components/inputs/StandardInputs').then((m) => ({ default: m.MaskInputField })),
+);
+const LazyEmail = React.lazy(() =>
+  import('../components/inputs/StandardInputs').then((m) => ({ default: m.EmailInputField })),
+);
+const LazyTel = React.lazy(() =>
+  import('../components/inputs/StandardInputs').then((m) => ({ default: m.TelInputField })),
+);
+const LazyUrl = React.lazy(() =>
+  import('../components/inputs/StandardInputs').then((m) => ({ default: m.UrlInputField })),
 );
 
 const LazyText = React.lazy(() =>
@@ -55,12 +73,18 @@ const LazyCheckbox = React.lazy(() =>
 const LazyRadio = React.lazy(() =>
   import('../components/inputs/SelectionInputs').then((m) => ({ default: m.RadioField })),
 );
+const LazyAutocomplete = React.lazy(() =>
+  import('../components/inputs/SelectionInputs').then((m) => ({ default: m.AutocompleteField })),
+);
 const LazyTaxonomy = React.lazy(() => import('../components/inputs/TaxonomyInput'));
 const LazyArrayField = React.lazy(() => import('../components/layouts/ArrayField'));
 const LazyMathInput = React.lazy(() => import('../components/inputs/MathInputField'));
 const LazyCalculatedField = React.lazy(() => import('../components/inputs/CalculatedField'));
 const LazySectionLayout = React.lazy(() => import('../components/layouts/SectionLayout'));
 const LazyGroupLayout = React.lazy(() => import('../components/layouts/GroupLayout'));
+const LazyReviewSummary = React.lazy(() =>
+  import('../components/layouts/ReviewSummary').then((m) => ({ default: m.ReviewSummaryField })),
+);
 const LazyDataGrid = React.lazy(() => import('../components/special/DataGridField'));
 
 // Upload components
@@ -87,21 +111,27 @@ export const COMPONENT_REGISTRY: Record<string, React.ComponentType<any>> = {
   color: LazyColor,
   otp: LazyOTP,
   mask: LazyMask,
+  email: LazyEmail,
+  tel: LazyTel,
+  url: LazyUrl,
 
   // Selection
   select: LazySelect,
-  'multi-select': LazySelect,
   checkbox: LazyCheckbox,
   switch: LazySwitch,
   radio: LazyRadio,
   segmented: LazySegmented,
+  autocomplete: LazyAutocomplete,
   taxonomy: LazyTaxonomy,
   slider: LazySlider,
   'range-slider': LazyRangeSlider,
+  rating: LazyRating,
+  'toggle-group': LazyToggleGroup,
 
-  // Dates & rich
+  // Dates, time & rich
   date: LazyDateInput,
   'date-range': LazyDateRangeInput,
+  time: LazyTimeInput,
   'rich-text': LazyRichText,
 
   // Files / media
@@ -123,4 +153,5 @@ export const COMPONENT_REGISTRY: Record<string, React.ComponentType<any>> = {
   wizard: LazyWizard,
   array: LazyArrayField,
   'data-grid': LazyDataGrid,
+  'review-summary': LazyReviewSummary,
 };

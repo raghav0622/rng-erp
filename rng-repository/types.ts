@@ -1,22 +1,23 @@
 /**
- * 🔒 FROZEN API (v1.0.0)
+ * 🔒 FROZEN API (v2.0.0 — locked)
  *
- * The IRepository<T> interface is the immutable contract for this library.
- * Changes here constitute a BREAKING CHANGE.
+ * IRepository<T> and all exported types are the immutable contract for this library.
+ * No new methods or type members in v2.x. Changes constitute a new major version.
  */
 
 import { FieldValue } from 'firebase/firestore';
-import z from 'zod';
 
-export const REPOSITORY_API_VERSION = '1.0.0';
+/** @internal Reserved for internal use; public version is RNG_REPOSITORY_VERSION from index. */
+export const REPOSITORY_API_VERSION = '2.0.0';
 
 /**
- * 🔒 Frozen repository contract (v1).
+ * 🔒 Frozen repository contract (v2.0.0).
  * Defines mechanical CRUD/query semantics for Firestore-backed entities without embedding domain logic.
- * Behavior and surface are immutable; extend via hooks/configuration outside this file.
+ * Behavior and surface are immutable within v2.x; extend via hooks/configuration outside this file.
  */
 export interface IRepository<T extends BaseEntity> {
   getById(id: string, options?: GetOptions): Promise<T | null>;
+  getByIdIncludingDeleted(id: string, options?: GetOptions): Promise<T | null>;
   getOptional(id: string, options?: GetOptions): Promise<T | null>;
   find(options?: QueryOptions<T>): Promise<PaginatedResult<T>>;
   findOne(options: QueryOptions<T>): Promise<T | null>;
@@ -41,6 +42,14 @@ export interface IRepository<T extends BaseEntity> {
   ensureNotExists(id: string): Promise<void>;
   ensureUnique(field: keyof T, value: any, opts?: { excludeId?: string }): Promise<void>;
   touch(id: string): Promise<void>;
+  touchWithoutHooks?(id: string): Promise<void>; // v2.0.0
+  updateMany?(
+    ids: string[],
+    updates: UpdateData<T>,
+    context?: AuditContext,
+    options?: UpdateOptions,
+  ): Promise<BatchOperationResult>; // v2.0.0
+  deleteMany?(ids: string[], context?: AuditContext): Promise<BatchOperationResult>; // v2.0.0
   assertNotDeleted(id: string): Promise<void>;
   runAtomic(id: string, mutation: (current: T) => UpdateData<T>): Promise<T>;
   createMany(
@@ -48,6 +57,10 @@ export interface IRepository<T extends BaseEntity> {
     context?: AuditContext,
   ): Promise<BatchOperationResult>;
   diff(original: T, updates: Partial<T>): Partial<T>;
+  // v2.0.0: History tracking (optional)
+  undo?(id: string, context?: AuditContext): Promise<T>;
+  redo?(id: string, context?: AuditContext): Promise<T>;
+  getHistory?(id: string, options?: { limit?: number }): Promise<HistoryEntry<T>[]>;
 }
 
 /**
@@ -63,13 +76,18 @@ export interface BaseEntity {
   [key: string]: any;
 }
 
-export const BaseEntitySchema = {
-  id: z.string(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-  deletedAt: z.date().nullable().optional(),
-  _v: z.number().optional(),
-};
+/**
+ * BaseEntitySchema - Optional Zod schema for BaseEntity validation
+ * Note: This is not exported as part of the public API to avoid requiring zod as a dependency
+ * If you need schema validation, implement it in your application layer
+ */
+// export const BaseEntitySchema = {
+//   id: z.string(),
+//   createdAt: z.date(),
+//   updatedAt: z.date(),
+//   deletedAt: z.date().nullable().optional(),
+//   _v: z.number().optional(),
+// };
 /**
  * 🔒 Frozen repository context (v1).
  * Carries request metadata into repository operations; policy enforcement lives above this layer.
@@ -136,7 +154,7 @@ export interface RetryPolicy {
 }
 
 /**
- * 🔒 Frozen repository configuration (v1).
+ * 🔒 Frozen repository configuration (v2.0.0).
  * Describes mechanical behaviors (soft delete, encryption, compression, hooks) supplied from extensible layers.
  * No domain/RBAC logic should be added to the repository itself.
  */
@@ -150,16 +168,27 @@ export interface RepositoryConfig<T extends BaseEntity> {
   searchProvider?: SearchProvider;
   cacheProvider?: CacheProvider;
   migrations?: Record<number, (data: any) => any>;
+  migrationStrategy?: 'eager' | 'lazy' | 'write-only'; // v2.0.0: Control when migrations run
   sensitiveFields?: string[];
   hooks?: RepositoryHooks<T>;
   invariants?: InvariantHooks<T>;
   relations?: Record<string, RelationConfig>;
+  populationFailureMode?: 'silent' | 'warn' | 'throw'; // v2.0.0: How to handle failed relation population
   idStrategy?: 'auto' | 'client' | 'deterministic';
   idGenerator?: (data: any) => string;
   allowedSelect?: readonly (keyof T)[];
   enableDiagnostics?: boolean;
   onDiagnostic?: (event: RepositoryDiagnosticEvent) => void;
   retry?: RetryPolicy;
+  // v2.0.0: Cache and queue limits
+  maxQueryCacheSize?: number; // Default: 100 entries
+  maxOfflineQueueSize?: number; // Default: 1000 entries
+  // v2.0.0: History tracking (undo/redo)
+  enableHistory?: boolean; // Default: false
+  maxHistorySize?: number; // Default: 50 entries per document
+  historyStorage?: 'subcollection' | 'embedded'; // Default: 'subcollection'
+  /** When true, skip offline queue and always persist (e.g. for tests with emulator) */
+  forceOnline?: boolean; // Default: false
 }
 
 /**
@@ -289,6 +318,8 @@ export interface CreateOptions {
 export interface UpdateOptions {
   optimisticLock?: boolean;
   idempotencyKey?: string;
+  /** When true, skip saving history/redo for this update (used by undo/redo restore). */
+  skipHistory?: boolean;
 }
 
 /**
@@ -322,3 +353,20 @@ export interface BatchOperationResult {
 export type UpdateData<T> = Partial<T> & {
   [key: string]: any | FieldValue;
 };
+
+/**
+ * 🔒 Frozen history entry shape (v2.0.0).
+ * Represents a snapshot of a document at a point in time for undo/redo functionality.
+ */
+export interface HistoryEntry<T extends BaseEntity> {
+  id: string;
+  documentId: string;
+  snapshot: T;
+  /** State after mutation (for redo). Set for update/delete/softDelete. */
+  redoSnapshot?: T;
+  operation: 'create' | 'update' | 'delete' | 'softDelete' | 'restore';
+  timestamp: Date;
+  actorId?: string;
+  reason?: string;
+  version: number; // _v field value
+}

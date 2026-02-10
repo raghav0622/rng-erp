@@ -3,7 +3,7 @@
 import { Center, Loader, Text } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { globalLogger } from '../../../../lib/index';
+import { globalLogger } from '@/lib';
 
 // react-pdf / pdf.js worker setup (Vite-safe)
 if (typeof window !== 'undefined') {

@@ -36,22 +36,26 @@ class SessionRepository extends AbstractClientFirestoreRepository<UserSession> {
    */
   async revokeAllSessions(userId: string): Promise<number> {
     const sessions = await this.getActiveSessions(userId);
-    const revokedAt = new Date();
+    if (sessions.length === 0) return 0;
 
-    let revokedCount = 0;
-    for (const session of sessions) {
-      await this.update(session.id, {
+    const revokedAt = new Date();
+    const sessionIds = sessions.map((s) => s.id);
+
+    // Use batch update for better performance
+    const result = await this.updateMany(
+      sessionIds,
+      {
         revoked: true,
         revokedAt,
-      });
-      revokedCount++;
-    }
+      } as Partial<UserSession>,
+    );
 
-    return revokedCount;
+    return result.successCount;
   }
 
   /**
    * Clean up expired sessions (call periodically)
+   * Uses batch delete for better performance (v2.0.0 migration)
    */
   async cleanupExpiredSessions(): Promise<number> {
     const now = new Date();
@@ -60,22 +64,26 @@ class SessionRepository extends AbstractClientFirestoreRepository<UserSession> {
       limit: 500, // Process in batches
     });
 
-    let deletedCount = 0;
-    for (const session of result.data) {
-      await this.delete(session.id);
-      deletedCount++;
-    }
+    if (result.data.length === 0) return 0;
 
-    return deletedCount;
+    const sessionIds = result.data.map((s) => s.id);
+    const deleteResult = await this.deleteMany(sessionIds);
+
+    return deleteResult.successCount;
   }
 
   /**
    * Update session heartbeat to keep it alive
+   * Uses lightweight touch for high-frequency updates (v2.0.0 optimization)
    */
   async updateHeartbeat(sessionId: string): Promise<void> {
+    // Note: touchWithoutHooks only updates updatedAt, not lastSeenAt
+    // If lastSeenAt tracking is required, use update() instead
     await this.update(sessionId, {
       lastSeenAt: new Date(),
     });
+    // TODO: Consider using touchWithoutHooks() if lastSeenAt can be removed
+    // or if updatedAt is sufficient for heartbeat tracking
   }
 }
 

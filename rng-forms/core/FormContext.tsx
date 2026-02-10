@@ -9,6 +9,8 @@ export interface RNGContextState {
   readOnly: boolean;
   debug: boolean;
   isSubmitting: boolean;
+  /** When true (default), use compact spacing and smaller gaps */
+  dense: boolean;
 }
 
 /**

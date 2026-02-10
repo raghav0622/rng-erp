@@ -62,12 +62,26 @@ export function runRepositoryContractTests(
       it('should reject stale updates (Optimistic Locking)', async () => {
         const created = await repo.create({ name: 'Original' });
 
-        // Simulate stale read
-        const stale = { ...created, _v: 0 };
-
+        // v2.0.0: _v is mandatory when optimisticLock: true
+        // Test missing _v first (should fail with VALIDATION_FAILED)
         await expect(
           repo.update(created.id, { name: 'Conflict' }, undefined, { optimisticLock: true }),
-        ).rejects.toThrowError(expect.objectContaining({ code: RepositoryErrorCode.CONFLICT }));
+        ).rejects.toThrowError(
+          expect.objectContaining({ code: RepositoryErrorCode.VALIDATION_FAILED }),
+        );
+
+        // Test stale _v (should fail with CONCURRENT_MODIFICATION)
+        const current = await repo.getById(created.id);
+        await expect(
+          repo.update(
+            created.id,
+            { name: 'Conflict', _v: (current!._v || 0) - 1 },
+            undefined,
+            { optimisticLock: true },
+          ),
+        ).rejects.toThrowError(
+          expect.objectContaining({ code: RepositoryErrorCode.CONCURRENT_MODIFICATION }),
+        );
       });
     });
 

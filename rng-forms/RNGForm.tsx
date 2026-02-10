@@ -137,6 +137,11 @@ export interface RNGFormProps<TValues extends FieldValues = any> {
    * Callback fired after submission error
    */
   onSubmitError?: (error: any) => void;
+  /**
+   * Use compact spacing (smaller gaps). Default true.
+   * @default true
+   */
+  dense?: boolean;
 }
 
 export default function RNGForm<TValues extends FieldValues = any>({
@@ -166,6 +171,7 @@ export default function RNGForm<TValues extends FieldValues = any>({
   showFieldCounter = false,
   onSubmitSuccess,
   onSubmitError,
+  dense = true,
 }: RNGFormProps<TValues>) {
   const [showResetModal, setShowResetModal] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -306,12 +312,16 @@ export default function RNGForm<TValues extends FieldValues = any>({
     maxWidth: typeof maxWidth === 'number' ? maxWidth : undefined,
   };
 
+  const stackGap = dense ? 'sm' : 'xl';
+  const fieldGap = dense ? 'sm' : 'md';
+
   return (
     <RNGContextProvider
       value={{
         readOnly,
         debug,
         isSubmitting,
+        dense,
       }}
     >
       <FormProvider {...form}>
@@ -329,7 +339,7 @@ export default function RNGForm<TValues extends FieldValues = any>({
             }}
             noValidate
           >
-            <Stack gap="xl">
+            <Stack gap={stackGap}>
               {debug && (
                 <Alert icon={<IconAlertCircle size={16} />} color="blue" title="Debug Mode">
                   Form is in debug mode. Watch values in console.log.
@@ -429,14 +439,14 @@ export default function RNGForm<TValues extends FieldValues = any>({
                   ))}
                 </Grid>
               ) : (
-                <Stack gap="md">
+                <Stack gap={fieldGap}>
                   {schema.items.map((item: RNGFormItem<TValues>, idx: number) => (
                     <FieldWrapper key={`${item.type}-${idx}`} item={item} />
                   ))}
                 </Stack>
               )}
 
-              <Group justify="flex-end" gap="md">
+              <Group justify="flex-end" gap={fieldGap}>
                 <Button
                   type="submit"
                   loading={isSubmitting}

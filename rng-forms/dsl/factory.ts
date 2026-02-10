@@ -9,6 +9,7 @@ import type {
   DataGridItem,
   DateInputItem,
   DateRangeInputItem,
+  EmailInputItem,
   FileInputItem,
   GeoInputItem,
   GroupItem,
@@ -22,15 +23,21 @@ import type {
   PDFInputItem,
   RadioInputItem,
   RangeSliderInputItem,
+  RatingInputItem,
   RichTextInputItem,
+  ReviewSummaryItem,
   RNGFormItem,
+  ToggleGroupInputItem,
   SectionItem,
   SegmentedInputItem,
   SelectInputItem,
   SignatureInputItem,
   SliderInputItem,
   SwitchInputItem,
+  TelInputItem,
   TextInputItem,
+  TimeInputItem,
+  UrlInputItem,
   WizardItem,
 } from '../types/core';
 
@@ -63,6 +70,9 @@ type FormBuilderShape<TValues, P extends Path<TValues> | undefined = undefined> 
   color: FieldFn<ColorInputItem<TValues>, TValues, P>;
   otp: FieldFn<OTPInputItem<TValues>, TValues, P>;
   mask: FieldFn<MaskInputItem<TValues>, TValues, P>;
+  email: FieldFn<EmailInputItem<TValues>, TValues, P>;
+  tel: FieldFn<TelInputItem<TValues>, TValues, P>;
+  url: FieldFn<UrlInputItem<TValues>, TValues, P>;
   // selection
   select: FieldFn<SelectInputItem<TValues>, TValues, P>;
   multiSelect: FieldFn<SelectInputItem<TValues>, TValues, P>;
@@ -73,9 +83,12 @@ type FormBuilderShape<TValues, P extends Path<TValues> | undefined = undefined> 
   autocomplete: FieldFn<AutocompleteInputItem<TValues>, TValues, P>;
   slider: FieldFn<SliderInputItem<TValues>, TValues, P>;
   rangeSlider: FieldFn<RangeSliderInputItem<TValues>, TValues, P>;
+  rating: FieldFn<RatingInputItem<TValues>, TValues, P>;
+  toggleGroup: FieldFn<ToggleGroupInputItem<TValues>, TValues, P>;
   // dates & rich
   date: FieldFn<DateInputItem<TValues>, TValues, P>;
   dateRange: FieldFn<DateRangeInputItem<TValues>, TValues, P>;
+  time: FieldFn<TimeInputItem<TValues>, TValues, P>;
   richText: FieldFn<RichTextInputItem<TValues>, TValues, P>;
   // files/media
   imageUpload: FieldFn<ImageInputItem<TValues>, TValues, P>;
@@ -107,6 +120,18 @@ type FormBuilderShape<TValues, P extends Path<TValues> | undefined = undefined> 
     itemSchema: ChildInput<TValues>,
     props?: Omit<ArrayFieldItem<TValues>, 'type' | 'name' | 'itemSchema'>,
   ) => ArrayFieldItem<TValues>;
+  /** Read-only summary of form values (e.g. last wizard step). */
+  reviewSummary: (
+    fields: { path: ScopedPath<TValues, P>; label: string }[],
+    props?: Omit<ReviewSummaryItem<TValues>, 'type' | 'fields'>,
+  ) => ReviewSummaryItem<TValues>;
+  /** Wizard step that only shows a review summary. Use as last step before submit. */
+  wizardReviewStep: (
+    fields: { path: ScopedPath<TValues, P>; label: string }[],
+    stepLabel?: string,
+    stepDescription?: string,
+    summaryTitle?: string,
+  ) => { label: string; description?: string; children: RNGFormItem<TValues>[] };
   scope: <Next extends ScopedPath<TValues, P>>(
     prefix: Next,
   ) => FormBuilderShape<TValues, Path<TValues>>;
@@ -146,6 +171,9 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
   const color = buildField<ColorInputItem<TValues>>('color');
   const otp = buildField<OTPInputItem<TValues>>('otp');
   const mask = buildField<MaskInputItem<TValues>>('mask');
+  const email = buildField<EmailInputItem<TValues>>('email');
+  const tel = buildField<TelInputItem<TValues>>('tel');
+  const url = buildField<UrlInputItem<TValues>>('url');
 
   const select = buildField<SelectInputItem<TValues>>('select');
   const multiSelect: FieldFn<SelectInputItem<TValues>, TValues, P> = (name, props = {}) => ({
@@ -159,9 +187,12 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
   const autocomplete = buildField<AutocompleteInputItem<TValues>>('autocomplete');
   const slider = buildField<SliderInputItem<TValues>>('slider');
   const rangeSlider = buildField<RangeSliderInputItem<TValues>>('range-slider');
+  const rating = buildField<RatingInputItem<TValues>>('rating');
+  const toggleGroup = buildField<ToggleGroupInputItem<TValues>>('toggle-group');
 
   const date = buildField<DateInputItem<TValues>>('date');
   const dateRange = buildField<DateRangeInputItem<TValues>>('date-range');
+  const time = buildField<TimeInputItem<TValues>>('time');
   const richText = buildField<RichTextInputItem<TValues>>('rich-text');
 
   const imageUpload = buildField<ImageInputItem<TValues>>('image-upload');
@@ -209,6 +240,28 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
   const scope = <Next extends ScopedPath<TValues, P>>(prefixValue: Next) =>
     makeBuilder<TValues, Path<TValues>>(withPrefix(prefixValue));
 
+  const reviewSummary = (
+    fields: { path: ScopedPath<TValues, P>; label: string }[],
+    props: Omit<ReviewSummaryItem<TValues>, 'type' | 'fields'> = {},
+  ): ReviewSummaryItem<TValues> => ({
+    type: 'review-summary',
+    fields: fields as ReviewSummaryItem<TValues>['fields'],
+    ...props,
+  });
+
+  const wizardReviewStep = (
+    fields: { path: ScopedPath<TValues, P>; label: string }[],
+    stepLabel = 'Review',
+    stepDescription?: string,
+    summaryTitle?: string,
+  ): { label: string; description?: string; children: RNGFormItem<TValues>[] } => ({
+    label: stepLabel,
+    description: stepDescription,
+    children: [
+      reviewSummary(fields, summaryTitle ? { title: summaryTitle } : {}),
+    ],
+  });
+
   Object.assign(builder, {
     text,
     password,
@@ -217,6 +270,9 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
     color,
     otp,
     mask,
+    email,
+    tel,
+    url,
     select,
     multiSelect,
     checkbox,
@@ -226,8 +282,11 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
     autocomplete,
     slider,
     rangeSlider,
+    rating,
+    toggleGroup,
     date,
     dateRange,
+    time,
     richText,
     imageUpload,
     pdfUpload,
@@ -241,6 +300,8 @@ function makeBuilder<TValues, P extends Path<TValues> | undefined = undefined>(
     group,
     wizard,
     array,
+    reviewSummary,
+    wizardReviewStep,
     scope,
   });
 

@@ -3,7 +3,7 @@
 import { Alert, Button, Stack, Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import React from 'react';
-import { globalLogger } from '../../lib';
+import { globalLogger } from '@/lib';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;

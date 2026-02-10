@@ -2,7 +2,17 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+    // Test collections first (rng-repository contract tests; emulator only)
+    match /test_entities/{document=**} {
+      allow read, write: if true;
+    }
+    match /test_entities_history/{docId}/snapshots/{snapshotId} {
+      allow read, write: if true;
+    }
+    match /_probe/{document=**} {
+      allow read, write: if true;
+    }
+
     // Helper functions
     function isAuthenticated() {
       return request.auth != null;
@@ -60,7 +70,7 @@ service cloud.firestore {
     match /taxonomy/{document=**} {
       allow read, write: if isAuthenticated();
     }
-    
+
     // Default deny all other collections
     match /{document=**} {
       allow read, write: if false;

@@ -2,7 +2,7 @@
 
 import { PDFDocument, degrees } from 'pdf-lib';
 import { useCallback, useEffect, useState } from 'react';
-import { globalLogger } from '../../lib';
+import { globalLogger } from '@/lib';
 
 export interface PDFPageState {
   index: number;

@@ -27,14 +27,17 @@ export interface TaxonomyInputItem<TValues extends FieldValues = any> {
  * Taxonomy system was removed due to persistent state synchronization issues.
  * This component is kept as a stub to avoid breaking existing form definitions.
  *
- * To use: Replace this field type with a standard 'select' or 'text' field in your form schema.
+ * Migration: Replace with `select` or `autocomplete` and load options from your
+ * service/hook (e.g. Firestore). The field renders disabled with a placeholder
+ * until then.
  *
  * @example
- * // Before (no longer works):
+ * // Current (stub – field is disabled):
  * { type: 'taxonomy', name: 'propertyType', taxonomy: 'property_type' }
  *
- * // After (use select instead):
- * { type: 'select', name: 'propertyType', options: ['Option1', 'Option2'] }
+ * // After migration (use select or autocomplete):
+ * { type: 'select', name: 'propertyType', options: optionsFromService }
+ * { type: 'autocomplete', name: 'propertyType', options: () => fetchOptions() }
  */
 function TaxonomyInputInner<TValues extends FieldValues>(
   props: TaxonomyInputItem<TValues> & BaseFieldProps<TValues>,

@@ -1,113 +1,97 @@
-# Abstract Client Firestore Repository (v1.0.0)
+# rng-repository (v2.0.0 — FROZEN)
 
-> **STATUS: FROZEN**
-> This module is a v1 immutable contract.
+> **STATUS: v2 LOCKED**  
+> Public API and behavior are frozen for the v2.x series. Only critical bug fixes and contract-aligned corrections are allowed. New features require a new major version.
 
-## 🔒 Freeze Rules
+## Public API (entry point: `index.ts`)
 
-- **Public API**: Immutable. No new methods, no signature changes.
-- **Behavior**: Immutable. Error handling, batching, and transaction semantics are locked.
-- **Dependencies**: Must not import from `hooks` or `react`.
-- **Versioning**: `RNG_REPOSITORY_VERSION = "1.0.0"`
+Consumers must import only from the package entry point. No internal modules are part of the public contract.
 
-## ✅ Allowed Extensions
+| Export | Description |
+|--------|-------------|
+| `AbstractClientFirestoreRepository` | Base class to extend for collection-specific repositories |
+| `RNG_REPOSITORY_VERSION` | Version string `"2.0.0"` |
+| `IRepository` | Repository interface (type) |
+| `RepositoryError`, `RepositoryErrorCode` | Error handling |
+| `BaseEntity`, `AuditContext`, `RepositoryContext` | Core types |
+| `RepositoryConfig`, `RepositoryHooks`, `InvariantHooks` | Configuration and hooks |
+| `QueryOptions`, `GetOptions`, `CreateOptions`, `UpdateOptions` | Option types |
+| `PaginatedResult`, `BatchOperationResult`, `UpdateData` | Result and payload types |
+| `HistoryEntry` | History/undo-redo (v2) |
+| `RelationConfig`, `RepositoryDiagnosticEvent`, `RetryPolicy` | Optional features |
+| `EncryptionStrategy`, `CompressionStrategy` | Pluggable strategies |
+| `SearchProvider`, `SearchResult`, `CacheProvider` | Optional providers |
 
-- Internal implementation details (private methods) may be optimized if behavior is preserved.
-- Bug fixes that align implementation with the documented contract.
-
-## 🚫 Forbidden
-
-- Adding new public methods.
-- Changing error types.
-- Adding dependencies on upper layers.
-
-## Versioning
-
-Any change to the public API requires a major version bump (v2.0.0).
+Internal modules (e.g. `utils/`, `AbstractClientFirestoreRepository.ts` internals, `errors.ts` as a file path) are not part of the public API and may change without notice.
 
 ---
 
-# Abstract Client Firestore Repository
-
-**🔒 STATUS: FROZEN (v1.0.0)**
-
 ## Overview
 
-This repository provides a platinum-grade, client-safe data access layer for Firestore. It is designed to be operationally robust, offline-tolerant, and strictly bounded. It abstracts Firestore mechanics while enforcing architectural invariants and providing enterprise-grade features like soft deletes, optimistic locking, and structured diagnostics.
+Client-safe Firestore data access layer: type-safe CRUD, queries, soft deletes, optimistic locking, optional history (undo/redo), and structured errors. No ORM, no server SDK, no business logic—mechanical data access only.
 
-## 🚫 What This Is NOT
+## v2.0.0 behavior (frozen)
 
-- **NOT an ORM**: It does not manage object graphs, cascading saves, or complex relationships.
-- **NOT a Server SDK**: It is designed for client-side usage (browser/mobile) and does not bypass security rules.
-- **NOT a Business Logic Layer**: It handles data access only. Business rules belong in the domain layer.
+- **Error mapping**: Firestore errors → `RepositoryError` with semantic codes (e.g. `FAILED_PRECONDITION`, `UNAVAILABLE`, `CONCURRENT_MODIFICATION`).
+- **Soft delete**: `getMany()` and get options support `includeDeleted`.
+- **Optimistic locking**: `_v` required when `optimisticLock: true`.
+- **History**: Optional `undo` / `redo` / `getHistory` with subcollection or embedded storage.
 
-## 🎯 Who This Repository Is For
+See [repository-contract.md](./docs/repository-contract.md) for the full behavioral contract.
 
-- **ERP Frontends**: Applications requiring strict data integrity, audit trails, and offline resilience.
-- **Internal Admin Systems**: Tools that need predictable, safe data access without complex business logic in the UI.
-- **Long-Lived Business Applications**: Projects where maintainability and stability are prioritized over rapid prototyping speed.
-
-## 🚫 Who This Repository Is NOT For
-
-- **Rapid Prototypes**: If you need to move fast and break things, use the raw Firebase SDK.
-- **Demo Apps**: The overhead of strict typing and contracts is unnecessary for throwaway code.
-- **ORM-Style Data Access**: If you expect `user.posts.add(...)`, look elsewhere.
-
-## Supported Guarantees
-
-- **Type Safety**: Fully typed generic interface `IRepository<T>`.
-- **Offline Tolerance**: Mutations are queued and replayed when online.
-- **Optimistic Locking**: Prevents lost updates via version checks.
-- **Soft Deletes**: Built-in support for non-destructive deletion.
-- **Read Consistency**: Optional strong consistency modes.
-- **Observability**: Structured diagnostic events for all operations.
-
-## Unsupported Guarantees
-
-- **Strong Uniqueness**: Uniqueness checks are best-effort and subject to race conditions (Firestore limitation).
-- **Cross-Collection Transactions**: Transactions are scoped to specific operations within the repository.
-- **Cascading Deletes**: Deleting a parent does not delete children.
-- **Relational Integrity**: No foreign key constraints are enforced.
-
-## Intended Usage Pattern
+## Usage
 
 ```typescript
-// 1. Define Entity
+import {
+  AbstractClientFirestoreRepository,
+  BaseEntity,
+  IRepository,
+  RepositoryError,
+  RepositoryErrorCode,
+} from '@/rng-repository'; // or your package alias
+
 interface User extends BaseEntity {
   name: string;
   email: string;
 }
 
-// 2. Extend Repository
 class UserRepository extends AbstractClientFirestoreRepository<User> {
   constructor(firestore: Firestore) {
     super(firestore, {
       collectionName: 'users',
       softDelete: true,
       enableDiagnostics: true,
-      // ... config
     });
   }
 }
 
-// 3. Use Interface
-const userRepo: IRepository<User> = new UserRepository(db);
-await userRepo.create({ name: 'Alice', email: 'alice@example.com' });
+const repo: IRepository<User> = new UserRepository(db);
+await repo.create({ name: 'Alice', email: 'alice@example.com' });
 ```
 
-## ⚠️ Warning Against ORM Usage
+## Error handling
 
-Do not attempt to add "smart" features like automatic relation loading, lazy loading, or active record patterns. This repository is designed to be "mechanical and boring" to ensure predictability and stability under failure conditions.
+All errors are normalized to `RepositoryError` with a `code` from `RepositoryErrorCode`. See README error table and [repository-contract.md](./docs/repository-contract.md).
 
-## 🛡️ API Stability & Maintenance
+## History (undo/redo)
 
-This repository follows **Semantic Versioning**.
+Enable with `enableHistory: true` and optional `historyStorage: 'subcollection' | 'embedded'`. Redo is supported for **update** operations (subcollection storage). See README “History Tracking” section and contract doc for limits.
 
-- **v1.x**: Backward compatible changes only.
-- **v2.0**: Breaking changes.
+## Testing
 
-### Maintenance Guidelines
+Tests live in `tests/` and require the Firestore emulator.
 
-1.  **Evaluate Changes**: Does this belong in the Service Layer? If yes, reject it here.
-2.  **Reject Complexity**: If a feature adds "magic" (implicit behavior), reject it.
-3.  **Protect the Contract**: Any change that breaks `tests/contract` is a breaking change.
+1. Start emulator: `npm run emulator` (from repo root).
+2. Restart emulator after changing `firestore.rules`.
+3. Run: `npm test` or `npx vitest run rng-repository`.
+
+## Documentation
+
+- [repository-contract.md](./docs/repository-contract.md) — Behavioral contract (v2.0.0).
+- [guarantees-and-non-goals.md](./docs/guarantees-and-non-goals.md) — What this layer does and does not do.
+- [repository-freeze-checklist.md](./docs/repository-freeze-checklist.md) — Checklist for any change under the v2 freeze.
+
+## Versioning
+
+- **v2.x**: Frozen. No new public methods or exports; only critical fixes and contract-aligned behavior.
+- **v3+**: Any new features or breaking changes require a new major version.
